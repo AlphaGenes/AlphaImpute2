@@ -1,0 +1,3 @@
+[submodule "tinyhouse"]
+	path = tinyhouse
+	url = https://AndrewWhalen@bitbucket.org/hickeyjohnteam/tinyhouse.git
