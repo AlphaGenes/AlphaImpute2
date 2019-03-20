@@ -1,0 +1,8 @@
+*.pyo
+*.pyc
+dist
+bin
+__pycache__/
+*.py[cod]
+*.DS_Store
+*.egg-info/
