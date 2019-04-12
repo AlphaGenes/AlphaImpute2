@@ -32,15 +32,15 @@ def main():
         #Do some small imputation before phasing. Phase. Then impute.
         print("Performing initial pedigree imputation")
         Imputation_Programs.imputeBeforePhasing(pedigree)
+        
         print("Initial pedigree imputation finished.", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
-
-        # #Phasing
+        # Phasing
         print("HD Phasing started.")
         if not args.no_phase:
             Imputation_Programs.phaseHD(pedigree)
         print("HD Phasing", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
-        #Imputation.
+        # Imputation.
         for genNum, gen in enumerate(pedigree.generations):
             print("Generation:",  genNum)
             Imputation_Programs.imputeGeneration(gen, pedigree, args, genNum)
