@@ -28,7 +28,6 @@ except:
 
 
 def setupImputation(pedigree):
-    assessAccuracy("start", pedigree)
     for ind in pedigree :
         Imputation.fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
         Imputation.fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
@@ -37,6 +36,10 @@ def setupImputation(pedigree):
             Imputation.ind_randomlyPhaseMidpoint(ind)
 
 def imputeBeforePhasing(pedigree):
+    # Idea here: Use pedigree information to pre-phase individuals before phasing them.
+    # We should probably use both parents + ancestors to do the imputation, and consider peeling up as well as peeling down.
+    # Right now, we just perform peeling.
+    
     PedigreeImputation.performPeeling(pedigree, fill = .99, ancestors = True)
 
 def phaseHD(pedigree):
@@ -87,17 +90,17 @@ def imputeGeneration(gen, pedigree, args, genNum):
 
 
 
-global_PhaseAccuracy = None 
-global_GenoAccuracy = None
+# global_PhaseAccuracy = None 
+# global_GenoAccuracy = None
 
 
-def assessAccuracy(label, pedigree) :
-    if pedigree.truePed is not None:
-        currentPhaseAcc = Imputation.pedCompareGenotypes(pedigree, pedigree.truePed)
-        currentGenoAcc = Imputation.pedComparePhase(pedigree, pedigree.truePed)
+# def assessAccuracy(label, pedigree) :
+#     if pedigree.truePed is not None:
+#         currentPhaseAcc = Imputation.pedCompareGenotypes(pedigree, pedigree.truePed)
+#         currentGenoAcc = Imputation.pedComparePhase(pedigree, pedigree.truePed)
 
-        print(label, currentPhaseAcc)
-        print(label, currentGenoAcc)
+#         print(label, currentPhaseAcc)
+#         print(label, currentGenoAcc)
 
 
 
@@ -108,7 +111,7 @@ def runPhasing(phasingInfo, nHets, finalNHet) :
         ProbPhasing.phaseHD(phasingInfo, nHet, setHap = False)
     ProbPhasing.phaseHD(phasingInfo, finalNHet, setHap = True)
     phasingInfo.alignIndividuals()
-    pass
+    
 
 @profile
 def runLDPhasing(pedigree, indList = None):

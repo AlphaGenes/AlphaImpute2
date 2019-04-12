@@ -21,10 +21,10 @@ def performPeeling(individuals, fill = 0, ancestors = False, peelUp = False):
         performPeeling_ind(ind, fill, ancestors)
 
 def performPeeling_ind(ind, fill, ancestors = False, peelUp = False):
+    # Fill in haplotypes from the parents. Should this go into math?
     parentHomozygoticFillIn(ind)
-    ind_peelDown_prob(ind, threshold = fill, peelUp = peelUp)
+    ind_peelDown_prob(ind, threshold = fill)
     if ancestors:
-        # Imputation.imputeFromAncestors(ind, depth = 0, cutoff = fill) #This functions in a similar manner to the line before.
         imputeFromAncestors(ind, depth = 1, cutoff = fill)
         imputeFromAncestors(ind, depth = 2, cutoff = fill)
 
@@ -61,22 +61,23 @@ def parentHomozygoticFillIn(ind) :
     #####################################
 
 
-def ind_peelDown_prob(ind, threshold = .99, peelUp = False):
+def ind_peelDown_prob(ind, threshold = .99):
 
-    #If they have a sire, they have to have a dam.
     if ind.sire is not None and ind.dam is not None:
-        peelDown_prob(ind.haplotypes, ind.sire.haplotypes, ind.dam.haplotypes, threshold = threshold, peelUp = peelUp)
+        peelDown_prob(ind.haplotypes, ind.sire.haplotypes, ind.dam.haplotypes, threshold = threshold)
         Imputation.ind_align(ind)
+
 @jit(nopython=True)
-def peelDown_prob(haps, sireHaps, damHaps, threshold, peelUp = False):
-    # 1) create pointSeg 
-    # 2) do a forward-backward on the pentrance
+def peelDown_prob(haps, sireHaps, damHaps, threshold):
+    # 1) Create pointSeg 
+    # 2) Smooth pointSeg with a forward backward algorithm.
     # 3) find loci that have a clear segregation, and call them.
+
     pointSeg = getPeelDownPointSeg(haps, sireHaps, damHaps)
     nLoci = len(haps[0])
 
     rate = 1.0/nLoci
-    values = loopyPeelingForwardBack(pointSeg, rate)
+    values = smoothPointSeg(pointSeg, rate)
     # print(values)
     #Now set values.
     for parIndex in range(2):
@@ -85,18 +86,6 @@ def peelDown_prob(haps, sireHaps, damHaps, threshold, peelUp = False):
         else:
             parHaps = damHaps
         callChildHaps(haps[parIndex], parIndex, values, parHaps, threshold)
-        
-    #Currently not using this. Need a good argument for a use case I think.
-    if peelUp:
-        for parIndex in range(2):
-            if parIndex == 0:
-                parHaps = sireHaps
-            else:
-                parHaps = damHaps
-            calledHaps = callParentHaps(haps[parIndex], parIndex, values, parHaps, threshold)
-
-            Imputation.filInIfMissing(parHaps[0], calledHaps[0])
-            Imputation.filInIfMissing(parHaps[1], calledHaps[1])
 
 
 @jit(nopython=True)
@@ -117,28 +106,6 @@ def callChildHaps(hap, parIndex, values, parHaps, threshold):
             elif val > thresh1:
                 hap[i] = parHaps[1][i]
 
-@jit(nopython=True)
-def callParentHaps(hap, parIndex, values, parHaps, threshold):
-    nLoci = len(hap)
-    thresh0 = 1-threshold
-    thresh1 = threshold
-    calledHaps = np.full((nLoci, 2), 9, dtype = np.int8)
-
-    for i in range(nLoci):
-        if hap[i] != 9:
-            if parIndex == 0:
-                #Val is probablity of hap 1
-                val = values[i,2] + values[i,3]
-            else:
-                val = values[i,1] + values[i,3]
-            if val < thresh0:
-                if parHaps[0][i] == 9:
-                    calledHaps[0][i] = hap[i]
-
-            elif val > thresh1:
-                if parHaps[1][i] == 9:
-                    calledHaps[1][i] = hap[i]                
-    return calledHaps
 
 @jit(nopython=True)
 def getPeelDownPointSeg(haps, sireHaps, damHaps):
@@ -185,12 +152,13 @@ def getPeelDownPointSeg(haps, sireHaps, damHaps):
                         pointSeg[i,3] *= hap1Val # 1,1
     return pointSeg
 @jit(nopython=True, locals={'e': float32, 'e2':float32, 'e1e':float32, 'e2i':float32})
-def loopyPeelingForwardBack(pointSeg, rate):
-    #This is probably way more fancy than it needs to be -- particularly it's low memory impact, but I think it works.
+def smoothPointSeg(pointSeg, rate):
+    # This runs a forward backward algorithm on the inputs to get a smoothed estimate.
+
     e = rate
     e2 = e**2
     e1e = e*(1-e)
-    e2i = 1.0 - e2
+    e2i = (1-e)**2
 
     nLoci = pointSeg.shape[0] 
 
@@ -226,7 +194,6 @@ def loopyPeelingForwardBack(pointSeg, rate):
 
         for j in range(4):
             seg[i,j] *= new[j]
-        # seg[:,i] *= new
         prev = new
 
     prev = np.full((4), .25, dtype = np.float32)
@@ -271,69 +238,71 @@ def loopyPeelingForwardBack(pointSeg, rate):
     #####################################
 
 
+# This probably should be replaced.
+# Currently it is not being used. 
 
-def imputeFromChildren(ind, cutoff = 0.9999) :
+# def imputeFromChildren(ind, cutoff = 0.9999) :
 
-    nLoci = len(ind.haplotypes[0])
-    ones = np.full((nLoci, 2), 0, np.int64)
-    counts = np.full((nLoci, 2), 0, np.int64)
+#     nLoci = len(ind.haplotypes[0])
+#     ones = np.full((nLoci, 2), 0, np.int64)
+#     counts = np.full((nLoci, 2), 0, np.int64)
 
-    matLib = np.transpose(np.array(ind.haplotypes))
+#     matLib = np.transpose(np.array(ind.haplotypes))
 
-    if len(ind.offspring) > 0:
-        for child in ind.offspring:
-            childHap = None
-            if child.sire is ind:
-                childHap = child.haplotypes[0]
-            if child.dam is ind:
-                childHap = child.haplotypes[1]
-            if childHap is None:
-                print("Something bad happened. Child of parent does not have parent as a parent")
+#     if len(ind.offspring) > 0:
+#         for child in ind.offspring:
+#             childHap = None
+#             if child.sire is ind:
+#                 childHap = child.haplotypes[0]
+#             if child.dam is ind:
+#                 childHap = child.haplotypes[1]
+#             if childHap is None:
+#                 print("Something bad happened. Child of parent does not have parent as a parent")
 
-            pointEstimates = getPointSegs(childHap, matLib, error = 0.01)
+#             pointEstimates = getPointSegs(childHap, matLib, error = 0.01)
 
-            rate = 1.0/nLoci
+#             rate = 1.0/nLoci
 
-            probs = haploidForwardBack(pointEstimates, rate)
-            calledHap = callReverseProbs(probs, childHap, cutoff = cutoff)
+#             probs = haploidForwardBack(pointEstimates, rate)
+#             calledHap = callReverseProbs(probs, childHap, cutoff = cutoff)
 
-            addToCountsIfNotMissing_2D(calledHap, ones, counts)
+#             addToCountsIfNotMissing_2D(calledHap, ones, counts)
         
-        for e in range(2):
-            calledHap = callCounts(ones[:,e], counts[:,e], threshold = .95)
-            Imputation.filInIfMissing(orig = ind.haplotypes[e], new = calledHap)
+#         for e in range(2):
+#             calledHap = callCounts(ones[:,e], counts[:,e], threshold = .95)
+#             Imputation.filInIfMissing(orig = ind.haplotypes[e], new = calledHap)
 
-@jit(nopython=True)
-def callCounts(ones, counts, threshold):
-    nLoci = len(ones)
-    calledHap = np.full(nLoci, 9, np.int8)
-    for i in range(nLoci):
-        if ones[i] > counts[i]*threshold:
-            calledHap[i] = 1
-        if ones[i] < counts[i]*(1-threshold):
-            calledHap[i] = 0
-    return calledHap
+# @jit(nopython=True)
+# def callCounts(ones, counts, threshold):
+#     nLoci = len(ones)
+#     calledHap = np.full(nLoci, 9, np.int8)
+#     for i in range(nLoci):
+#         if ones[i] > counts[i]*threshold:
+#             calledHap[i] = 1
+#         if ones[i] < counts[i]*(1-threshold):
+#             calledHap[i] = 0
+#     return calledHap
 
-@jit(nopython=True)
-def callReverseProbs(probs, refHap, cutoff):
-    nLoci, nHaps = probs.shape
-    hap = np.full(probs.shape, 9, dtype = np.int8)
-    #Work on calling first, and then use that. Don't use dosages.
-    for i in range(nLoci):
-        for j in range(nHaps):
-            score = probs[i, j]
-            if score > cutoff:
-                hap[i, j] = refHap[i]
-    return hap
+# @jit(nopython=True)
+# def callReverseProbs(probs, refHap, cutoff):
+#     nLoci, nHaps = probs.shape
+#     hap = np.full(probs.shape, 9, dtype = np.int8)
+#     #Work on calling first, and then use that. Don't use dosages.
+#     for i in range(nLoci):
+#         for j in range(nHaps):
+#             score = probs[i, j]
+#             if score > cutoff:
+#                 hap[i, j] = refHap[i]
+#     return hap
 
-@jit(nopython=True)
-def addToCountsIfNotMissing_2D(haplotypes, ones, counts):
-    nLoci, nHaps = haplotypes.shape
-    for i in range(nLoci):
-        for j in range(nHaps):
-            if haplotypes[i, j] != 9:
-                counts[i,j] += 1
-                ones[i,j] += haplotypes[i,j]
+# @jit(nopython=True)
+# def addToCountsIfNotMissing_2D(haplotypes, ones, counts):
+#     nLoci, nHaps = haplotypes.shape
+#     for i in range(nLoci):
+#         for j in range(nHaps):
+#             if haplotypes[i, j] != 9:
+#                 counts[i,j] += 1
+#                 ones[i,j] += haplotypes[i,j]
 
 
     #####################################
