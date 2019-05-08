@@ -8,6 +8,7 @@ from .Imputation import HeuristicBWImpute
 from .Imputation import Heuristic_Peel_Up
 
 import datetime
+import argparse
 
 try:
     profile
@@ -130,6 +131,23 @@ def runLDPhasing(pedigree, indList = None):
     #####################################
     #####################################
 
+def getArgs() :
+    parser = argparse.ArgumentParser(description='')
+    core_parser = parser.add_argument_group("Core arguments")
+    core_parser.add_argument('-out', required=True, type=str, help='The output file prefix.')
+    InputOutput.addInputFileParser(parser)
+    
+    core_impute_parser = parser.add_argument_group("Impute options")
+    core_impute_parser.add_argument('-no_impute', action='store_true', required=False, help='Flag to read in the files but not perform imputation.')
+    core_impute_parser.add_argument('-no_phase', action='store_true', required=False, help='Flag to not do HD phasing initially.')
+    core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
+    core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
+
+    core_impute_parser.add_argument('-peelup', action='store_true', required=False, help='Flag to peel up.')
+    core_impute_parser.add_argument('-peeldown', action='store_true', required=False, help='Flag to peel down.')
+
+    return InputOutput.parseArgs("AlphaFamImpute", parser)
+
 
 
 @profile
@@ -138,37 +156,43 @@ def main():
     ### Setup
     startTime = datetime.datetime.now()
 
-    args = InputOutput.parseArgs("AlphaImpute")
+    args = getArgs()
     pedigree = Pedigree.Pedigree() 
     InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    for ind in reversed(pedigree):
-        Heuristic_Peel_Up.singleLocusPeelUp(ind)
+    if args.peelup:
+        for ind in reversed(pedigree):
+            Heuristic_Peel_Up.singleLocusPeelUp(ind)
+
+    if args.peeldown:
+        print("Performing initial pedigree imputation")
+        imputeBeforePhasing(pedigree)
+
 
     # print("Read in and initial setup", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
-    # if not args.no_impute: 
+    if not args.no_impute: 
 
-    #     # Perform initial imputation + phasing before sending it to the phasing program to get phased.
-    #     # The imputeBeforePhasing just runs a peel-down, with ancestors included.        
-    #     print("Performing initial pedigree imputation")
-    #     imputeBeforePhasing(pedigree)
-    #     print("Initial pedigree imputation finished.", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+        # Perform initial imputation + phasing before sending it to the phasing program to get phased.
+        # The imputeBeforePhasing just runs a peel-down, with ancestors included.        
+        print("Performing initial pedigree imputation")
+        imputeBeforePhasing(pedigree)
+        print("Initial pedigree imputation finished.", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
         
-    #     # Phasing
-    #     print("HD Phasing started.")
-    #     if not args.no_phase:
-    #         phaseHD(pedigree)
-    #     print("HD Phasing", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+        # Phasing
+        print("HD Phasing started.")
+        if not args.no_phase:
+            phaseHD(pedigree)
+        print("HD Phasing", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
-    #     # Imputation.
-    #     for genNum, gen in enumerate(pedigree.generations):
-    #         # This runs a mix of pedigree based and population based imputation algorithms to impute each generation based on phased haplotypes.
-    #         print("Generation:",  genNum)
-    #         imputeGeneration(gen, pedigree, args, genNum)
-    #         print("Generation ", genNum, datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+        # Imputation.
+        for genNum, gen in enumerate(pedigree.generations):
+            # This runs a mix of pedigree based and population based imputation algorithms to impute each generation based on phased haplotypes.
+            print("Generation:",  genNum)
+            imputeGeneration(gen, pedigree, args, genNum)
+            print("Generation ", genNum, datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
 
     #Write out.
