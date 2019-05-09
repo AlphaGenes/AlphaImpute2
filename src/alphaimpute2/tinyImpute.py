@@ -6,9 +6,12 @@ from .Imputation import PedigreeImputation
 from .Imputation import ProbPhasing
 from .Imputation import HeuristicBWImpute
 from .Imputation import Heuristic_Peel_Up
+from .Imputation import Heuristic_Peeling
 
 import datetime
 import argparse
+import numpy as np
+
 
 try:
     profile
@@ -28,6 +31,7 @@ except:
 
 def setupImputation(pedigree):
     for ind in pedigree :
+        ind.setupIndividual()
         Imputation.fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
         Imputation.fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
         Imputation.ind_fillInGenotypesFromPhase(ind)
@@ -38,8 +42,14 @@ def imputeBeforePhasing(pedigree):
     # Idea here: Use pedigree information to pre-phase individuals before phasing them.
     # We should probably use both parents + ancestors to do the imputation, and consider peeling up as well as peeling down.
     # Right now, we just perform peeling.
-    
-    PedigreeImputation.performPeeling(pedigree, fill = .99, ancestors = True)
+
+    # PedigreeImputation.performPeeling(pedigree, fill = .99, ancestors = False)
+
+    for ind in pedigree:
+        Heuristic_Peeling.setSegregation(ind)
+        Heuristic_Peeling.heuristicPeelDown(ind)
+
+
 
 def phaseHD(pedigree):
 
@@ -149,6 +159,49 @@ def getArgs() :
     return InputOutput.parseArgs("AlphaFamImpute", parser)
 
 
+class AlphaImputeIndividual(Pedigree.Individual):
+    def __init__(self, idx, idn):
+        super().__init__(idx, idn)
+
+        self.segregation = None
+        self.originalGenotypes = None
+
+    def setupIndividual(self):
+        nLoci = len(self.genotypes)
+        self.segregation = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
+        self.originalGenotypes = self.genotypes.copy()
+    def toJit(self):
+        """Returns a just in time version of itself with the same idn and holders for haplotypes and genotypes"""
+
+        if self.genotypes is None or self.haplotypes is None:
+            raise ValueError("In order to just in time an Individual, both genotypes and haplotypes need to be not None")
+        nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
+        return jit_Individual(self.idn, self.genotypes, self.haplotypes, self.segregation, nLoci)
+
+# I want to move this to it's own module but haven't had the time yet.
+import numba
+from numba import jit, int8, int64, boolean, deferred_type, optional, jitclass, float32, double
+from collections import OrderedDict
+
+spec = OrderedDict()
+spec['idn'] = int64
+spec['nLoci'] = int64
+spec['genotypes'] = int8[:]
+# Haplotypes and reads are a tuple of int8 and int64.
+spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+spec['segregation'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+# spec['reads'] = optional(numba.typeof((np.array([0, 1], dtype = np.int64), np.array([0], dtype = np.int64))))
+
+@jitclass(spec)
+class jit_Individual(object):
+    def __init__(self, idn, genotypes, haplotypes, segregation, nLoci):
+        self.idn = idn
+        self.genotypes = genotypes
+        self.haplotypes = haplotypes
+        self.segregation = segregation
+        # self.reads = reads
+        self.nLoci = nLoci
+
 
 @profile
 def main():
@@ -157,24 +210,26 @@ def main():
     startTime = datetime.datetime.now()
 
     args = getArgs()
-    pedigree = Pedigree.Pedigree() 
+    pedigree = Pedigree.Pedigree(constructor = AlphaImputeIndividual) 
     InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    if args.peelup:
-        for ind in reversed(pedigree):
-            Heuristic_Peel_Up.singleLocusPeelUp(ind)
+    for cycle in range(5):
 
-    if args.peeldown:
+        for ind in reversed(pedigree):
+        # Heuristic_Peel_Up.singleLocusPeelUp(ind)
+            Heuristic_Peeling.HeuristicPeelUp(ind)
+
         print("Performing initial pedigree imputation")
         imputeBeforePhasing(pedigree)
 
+        pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
 
     # print("Read in and initial setup", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
-    if not args.no_impute: 
-
+    # if not args.no_impute: 
+    if False:
         # Perform initial imputation + phasing before sending it to the phasing program to get phased.
         # The imputeBeforePhasing just runs a peel-down, with ancestors included.        
         print("Performing initial pedigree imputation")
@@ -193,7 +248,6 @@ def main():
             print("Generation:",  genNum)
             imputeGeneration(gen, pedigree, args, genNum)
             print("Generation ", genNum, datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
-
 
     #Write out.
     if args.binaryoutput :
