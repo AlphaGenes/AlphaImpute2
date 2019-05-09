@@ -69,7 +69,7 @@ def fillInFromParentAndSeg(segregation, haplotype, parent):
 def HeuristicPeelUp(ind):
 
     # Use an individual's segregation estimate to peel up and reconstruct the individual based on their offspring's genotypes.
-    if len(ind.offspring) > 5:
+    if len(ind.offspring) > 1:
         nLoci = len(ind.genotypes)
 
         # Scores represent genotype probabilities. 
@@ -99,9 +99,7 @@ def HeuristicPeelUp(ind):
             scores += collapseScoresWithGenotypes(mateScore, mate.toJit())
 
         # We then see if we can call the scores.
-        newGenotypes = callScore(scores, threshold = 0.99)
-
-        HaplotypeOperations.fillIfMissing(ind.genotypes, newGenotypes)
+        callScore(scores, threshold = 0.99, ind = ind.toJit())
         HaplotypeOperations.align_individual(ind)
 
 # Need to change genotype proabilities to handle phasing.
@@ -233,31 +231,48 @@ def logMarginalize(scores, altGenoProbs, finalScores):
             finalScores[j] = np.log(tmpScore[j] + 1e-8)
 
 @njit
-def callScore(scores, threshold):
+def callScore(scores, threshold, ind):
+
+    # I am going to assume threshold > .5.
+
     # Maybe skip loci where we know we are already good?
     nLoci = scores.shape[1]
-    # cutoff = math.log(2*threshold/(1-threshold))
-    genotypes = np.full(nLoci, 9, dtype = np.int8)
 
     # Maybe could do below in a cleaner fasion, but this is nice and explicit.
     for i in range(nLoci) :
         vals = expNorm_1D(scores[:,i])
+        vals = combineAndNorm(vals, getGenotypeProbabilities(ind, i))
         s0 = vals[0]
         s1 = vals[1] + vals[2]
         s2 = vals[3]
-        if s0 > threshold and s0 > s1 and s0 > s2:
-            genotypes[i] = 0
 
-        if s1 > threshold and s1 > s0 and s1 > s2:
-            genotypes[i] = 1
+        # Set genotypes.
+        if s0 > threshold:
+            setIfMissing(ind.genotypes, 0, i)
+        if s1 > threshold:
+            setIfMissing(ind.genotypes, 1, i)
+        if s2 > threshold:
+            setIfMissing(ind.genotypes, 2, i)
 
-        if s2 > threshold and s2 > s0 and s2 > s1:
-            genotypes[i] = 2
+        
+        # Paternal Haplotypes
+        if vals[0] + vals[1] > threshold :
+                setIfMissing(ind.haplotypes[0], 0, i)
+        if vals[2] + vals[3] > threshold :
+                setIfMissing(ind.haplotypes[0], 1, i)
+        
+        # Maternal Haplotypes
+        if vals[0] + vals[2] > threshold :
+                setIfMissing(ind.haplotypes[1], 0, i)
+        if vals[1] + vals[3] > threshold :
+                setIfMissing(ind.haplotypes[1], 1, i)
 
-        # print(scores[:, i], genotypes[i])
 
-    return genotypes
 
+@njit
+def setIfMissing(mat, val, i):
+    if mat[i] == 9:
+        mat[i] = val
 
 @jit(nopython=True)
 def expNorm_1D(mat):
@@ -278,6 +293,21 @@ def expNorm_1D(mat):
     for a in range(4):
         tmp[a] /= total
     return tmp
+
+@njit
+def norm(mat):
+    total = 0
+    for i in range(len(mat)):
+        total += mat[i]
+    for i in range(len(mat)):
+        mat[i] /= total
+
+@njit
+def combineAndNorm(mat1, mat2):
+    for i in range(len(mat1)):
+        mat1[i] *= mat2[i]
+    norm(mat1)
+    return(mat1)
 
 @jit(nopython=True)
 def exp_2D(mat):

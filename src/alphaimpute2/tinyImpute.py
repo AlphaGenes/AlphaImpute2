@@ -141,24 +141,6 @@ def runLDPhasing(pedigree, indList = None):
     #####################################
     #####################################
 
-def getArgs() :
-    parser = argparse.ArgumentParser(description='')
-    core_parser = parser.add_argument_group("Core arguments")
-    core_parser.add_argument('-out', required=True, type=str, help='The output file prefix.')
-    InputOutput.addInputFileParser(parser)
-    
-    core_impute_parser = parser.add_argument_group("Impute options")
-    core_impute_parser.add_argument('-no_impute', action='store_true', required=False, help='Flag to read in the files but not perform imputation.')
-    core_impute_parser.add_argument('-no_phase', action='store_true', required=False, help='Flag to not do HD phasing initially.')
-    core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
-    core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
-
-    core_impute_parser.add_argument('-peelup', action='store_true', required=False, help='Flag to peel up.')
-    core_impute_parser.add_argument('-peeldown', action='store_true', required=False, help='Flag to peel down.')
-
-    return InputOutput.parseArgs("AlphaFamImpute", parser)
-
-
 class AlphaImputeIndividual(Pedigree.Individual):
     def __init__(self, idx, idn):
         super().__init__(idx, idn)
@@ -202,6 +184,25 @@ class jit_Individual(object):
         # self.reads = reads
         self.nLoci = nLoci
 
+def getArgs() :
+    parser = argparse.ArgumentParser(description='')
+    core_parser = parser.add_argument_group("Core arguments")
+    core_parser.add_argument('-out', required=True, type=str, help='The output file prefix.')
+    InputOutput.addInputFileParser(parser)
+    
+    core_impute_parser = parser.add_argument_group("Impute options")
+    core_impute_parser.add_argument('-no_impute', action='store_true', required=False, help='Flag to read in the files but not perform imputation.')
+    core_impute_parser.add_argument('-no_phase', action='store_true', required=False, help='Flag to not do HD phasing initially.')
+    core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
+    core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
+
+    core_impute_parser.add_argument('-peelup', action='store_true', required=False, help='Flag to peel up.')
+    core_impute_parser.add_argument('-peeldown', action='store_true', required=False, help='Flag to peel down.')
+    core_impute_parser.add_argument('-peeldown_multi', action='store_true', required=False, help='Flag to peel down with the fancier peeling.')
+
+    return InputOutput.parseArgs("AlphaFamImpute", parser)
+
+
 
 @profile
 def main():
@@ -215,11 +216,11 @@ def main():
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    for cycle in range(5):
+    for cycle in range(4):
 
         for ind in reversed(pedigree):
-        # Heuristic_Peel_Up.singleLocusPeelUp(ind)
-            Heuristic_Peeling.HeuristicPeelUp(ind)
+            if args.peeldown: Heuristic_Peel_Up.singleLocusPeelUp(ind)
+            if args.peeldown_multi: Heuristic_Peeling.HeuristicPeelUp(ind)
 
         print("Performing initial pedigree imputation")
         imputeBeforePhasing(pedigree)
