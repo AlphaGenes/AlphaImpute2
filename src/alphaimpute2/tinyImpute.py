@@ -7,11 +7,12 @@ from .Imputation import ProbPhasing
 from .Imputation import HeuristicBWImpute
 from .Imputation import Heuristic_Peel_Up
 from .Imputation import Heuristic_Peeling
+from .Imputation import Heuristic_Peeling_Careful
+from .Imputation import ImputationIndividual
 
 import datetime
 import argparse
 import numpy as np
-
 
 try:
     profile
@@ -35,8 +36,8 @@ def setupImputation(pedigree):
         Imputation.fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
         Imputation.fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
         Imputation.ind_fillInGenotypesFromPhase(ind)
-        if ind.isFounder() :
-            Imputation.ind_randomlyPhaseMidpoint(ind)
+        # if ind.isFounder() :
+        #     Imputation.ind_randomlyPhaseMidpoint(ind)
 
 def imputeBeforePhasing(pedigree):
     # Idea here: Use pedigree information to pre-phase individuals before phasing them.
@@ -141,48 +142,7 @@ def runLDPhasing(pedigree, indList = None):
     #####################################
     #####################################
 
-class AlphaImputeIndividual(Pedigree.Individual):
-    def __init__(self, idx, idn):
-        super().__init__(idx, idn)
 
-        self.segregation = None
-        self.originalGenotypes = None
-
-    def setupIndividual(self):
-        nLoci = len(self.genotypes)
-        self.segregation = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
-        self.originalGenotypes = self.genotypes.copy()
-    def toJit(self):
-        """Returns a just in time version of itself with the same idn and holders for haplotypes and genotypes"""
-
-        if self.genotypes is None or self.haplotypes is None:
-            raise ValueError("In order to just in time an Individual, both genotypes and haplotypes need to be not None")
-        nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
-        return jit_Individual(self.idn, self.genotypes, self.haplotypes, self.segregation, nLoci)
-
-# I want to move this to it's own module but haven't had the time yet.
-import numba
-from numba import jit, int8, int64, boolean, deferred_type, optional, jitclass, float32, double
-from collections import OrderedDict
-
-spec = OrderedDict()
-spec['idn'] = int64
-spec['nLoci'] = int64
-spec['genotypes'] = int8[:]
-# Haplotypes and reads are a tuple of int8 and int64.
-spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
-spec['segregation'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
-# spec['reads'] = optional(numba.typeof((np.array([0, 1], dtype = np.int64), np.array([0], dtype = np.int64))))
-
-@jitclass(spec)
-class jit_Individual(object):
-    def __init__(self, idn, genotypes, haplotypes, segregation, nLoci):
-        self.idn = idn
-        self.genotypes = genotypes
-        self.haplotypes = haplotypes
-        self.segregation = segregation
-        # self.reads = reads
-        self.nLoci = nLoci
 
 def getArgs() :
     parser = argparse.ArgumentParser(description='')
@@ -211,22 +171,36 @@ def main():
     startTime = datetime.datetime.now()
 
     args = getArgs()
-    pedigree = Pedigree.Pedigree(constructor = AlphaImputeIndividual) 
+    pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
     InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    for cycle in range(4):
+
+    for ind in pedigree:
+        ind.toJit().setValueFromGenotypes(ind.penetrance)
+    cutoffs = [.99, .99, .98, .97, .95]
+    for cycle in range(len(cutoffs)):
+
+        for ind in pedigree:
+            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
+            Heuristic_Peeling_Careful.heuristicPeelDown(ind)
 
         for ind in reversed(pedigree):
-            if args.peeldown: Heuristic_Peel_Up.singleLocusPeelUp(ind)
-            if args.peeldown_multi: Heuristic_Peeling.HeuristicPeelUp(ind)
+            # Heuristic_Peel_Up.singleLocusPeelUp(ind)
+            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
+            Heuristic_Peeling_Careful.HeuristicPeelUp(ind)
 
         print("Performing initial pedigree imputation")
-        imputeBeforePhasing(pedigree)
+
+
+        for ind in pedigree:
+            ind.setGenotypesAll()
 
         pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
 
+    # for ind in pedigree:
+    #     ind.setGenotypesPenetrance()
     # print("Read in and initial setup", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
     # if not args.no_impute: 
