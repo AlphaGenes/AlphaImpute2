@@ -87,7 +87,7 @@ def fillInFromParentAndSeg(segregation, haplotype, parent):
 def HeuristicPeelUp(ind):
 
     # Use an individual's segregation estimate to peel up and reconstruct the individual based on their offspring's genotypes.
-    if len(ind.offspring) > 5:
+    if len(ind.offspring) > 1:
         nLoci = len(ind.genotypes)
 
         # Scores represent genotype probabilities. 
