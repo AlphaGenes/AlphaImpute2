@@ -115,7 +115,7 @@ def HeuristicPeelUp(ind):
                 mateScore = np.transpose(mateScore, [1, 0, 2])
 
             # We then collapse the scores by marginalizing over their mate's genotype.
-            mate.setGenotypesAnterior()
+            mate.setGenotypesAll()
             scores += collapseScoresWithGenotypes(mateScore, mate.toJit())
 
         # We then see if we can call the scores.
@@ -455,18 +455,19 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
                 pointEstimates[1,i] *= e
                 pointEstimates[2,i] *= 1-e
                 pointEstimates[3,i] *= 1-e
-            
-            if indhap == sirehap0 and indhap != sirehap1 and sirehap1 == 9:
-                pointEstimates[0,i] *= 1-e
-                pointEstimates[1,i] *= 1-e
-                pointEstimates[2,i] *= .5
-                pointEstimates[3,i] *= .5
 
-            if indhap == sirehap1 and indhap != sirehap0 and sirehap1 == 9:
-                pointEstimates[0,i] *= .5
-                pointEstimates[1,i] *= .5
-                pointEstimates[2,i] *= 1-e
-                pointEstimates[3,i] *= 1-e
+            # This can be super problematic
+            # if indhap == sirehap0 and indhap != sirehap1 and sirehap1 == 9:
+            #     pointEstimates[0,i] *= 1-e
+            #     pointEstimates[1,i] *= 1-e
+            #     pointEstimates[2,i] *= .5
+            #     pointEstimates[3,i] *= .5
+
+            # if indhap == sirehap1 and indhap != sirehap0 and sirehap1 == 9:
+            #     pointEstimates[0,i] *= .5
+            #     pointEstimates[1,i] *= .5
+            #     pointEstimates[2,i] *= 1-e
+            #     pointEstimates[3,i] *= 1-e
 
         if ind.haplotypes[1][i] != 9:
             indhap = ind.haplotypes[1][i]
@@ -483,18 +484,18 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
                 pointEstimates[2,i] *= e
                 pointEstimates[1,i] *= 1-e
                 pointEstimates[3,i] *= 1-e
+            # This can be super problematic
+            # if indhap == damhap0 and indhap != damhap1 and damhap1 == 9:
+            #     pointEstimates[0,i] *= 1-e
+            #     pointEstimates[2,i] *= 1-e
+            #     pointEstimates[1,i] *= .5
+            #     pointEstimates[3,i] *= .5
 
-            if indhap == damhap0 and indhap != damhap1 and damhap1 == 9:
-                pointEstimates[0,i] *= 1-e
-                pointEstimates[2,i] *= 1-e
-                pointEstimates[1,i] *= .5
-                pointEstimates[3,i] *= .5
-
-            if indhap == damhap1 and indhap != damhap0 and damhap1 == 9:
-                pointEstimates[0,i] *= .5
-                pointEstimates[2,i] *= .5
-                pointEstimates[1,i] *= 1-e
-                pointEstimates[3,i] *= 1-e
+            # if indhap == damhap1 and indhap != damhap0 and damhap1 == 9:
+            #     pointEstimates[0,i] *= .5
+            #     pointEstimates[2,i] *= .5
+            #     pointEstimates[1,i] *= 1-e
+            #     pointEstimates[3,i] *= 1-e
 
 
 
