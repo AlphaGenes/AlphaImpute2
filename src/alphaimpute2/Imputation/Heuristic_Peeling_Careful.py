@@ -40,10 +40,6 @@ def heuristicPeelDown(ind):
 
     # Use the individual's segregation estimate to peel down.
 
-    ind.setGenotypesPenetrance()
-
-    initialGenotypes = ind.genotypes.copy()
-
     ind.clearGenotypes()
 
     if ind.sire is not None:
@@ -60,7 +56,6 @@ def heuristicPeelDown(ind):
 
     ind.toJit().setValueFromGenotypes(ind.anterior)
 
-    finalGenotypes = ind.genotypes.copy()
 
 @njit
 def fillInFromParentAndSeg(segregation, haplotype, parent):
@@ -91,7 +86,7 @@ def HeuristicPeelUp(ind):
         nLoci = len(ind.genotypes)
 
         # Scores represent genotype probabilities. 
-        #Our goal is to generate join scores for the sire and dam for each parent, and then join them together for a single score for a singel parent.
+        #Our goal is to generate join scores for the sire and dam for each parent, and then join them together for a single score for a single parent.
         scores = np.full((4, nLoci), 0, dtype = np.float32)
 
         for family in ind.families:
@@ -390,24 +385,13 @@ def setSegregation(ind, cutoff = 0.99):
 
         # Set genotypes for individual and parents.
         ind.setGenotypesPosterior()
-        ind.sire.setGenotypesAnterior()
-        ind.dam.setGenotypesAnterior()
+        ind.sire.setGenotypesAll()
+        ind.dam.setGenotypesAll()
 
         fillPointEstimates(pointEstimates, ind.toJit(), ind.sire.toJit(), ind.dam.toJit())
 
         # Run the smoothing algorithm on this.
         smoothedEstimates = smoothPointSeg(pointEstimates, 1.0/nLoci)
-        if ind.idx == "7":
-            print("sire", ind.sire.haplotypes[0])
-            print("sire", ind.sire.haplotypes[1])
-
-            print("dam", ind.dam.haplotypes[0])
-            print("dam", ind.dam.haplotypes[1])
-
-            print("ind", ind.haplotypes[0])
-            print("ind", ind.haplotypes[1])
-            print(pointEstimates)
-            print(smoothedEstimates)
 
         # Then call the segregation values.
         callSegregation(ind.segregation, smoothedEstimates, cutoff = cutoff)
