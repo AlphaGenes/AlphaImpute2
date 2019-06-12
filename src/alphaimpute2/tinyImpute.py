@@ -5,8 +5,6 @@ from .Imputation import Imputation
 from .Imputation import PedigreeImputation
 from .Imputation import ProbPhasing
 from .Imputation import HeuristicBWImpute
-from .Imputation import Heuristic_Peel_Up
-from .Imputation import Heuristic_Peeling
 from .Imputation import Heuristic_Peeling_Careful
 from .Imputation import ImputationIndividual
 
@@ -179,23 +177,25 @@ def main():
 
     for ind in pedigree:
         ind.toJit().setValueFromGenotypes(ind.penetrance)
-    cutoffs = [.99, .99, .98, .97, .95]
+        ind.penetrance = ind.penetrance*(1-.01) + 0.01/4
+    cutoffs =       [.99, .9, .9, .9, .9]
+    write_cutoffs = [.99, .9, .7, .6, .3]
     for cycle in range(len(cutoffs)):
 
         for ind in pedigree:
             Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
-            Heuristic_Peeling_Careful.heuristicPeelDown(ind)
+            Heuristic_Peeling_Careful.heuristicPeelDown(ind, cutoff = cutoffs[cycle])
 
         for ind in reversed(pedigree):
             # Heuristic_Peel_Up.singleLocusPeelUp(ind)
             Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
-            Heuristic_Peeling_Careful.HeuristicPeelUp(ind)
+            Heuristic_Peeling_Careful.HeuristicPeelUp(ind, cutoff = cutoffs[cycle])
 
         print("Performing initial pedigree imputation")
 
 
         for ind in pedigree:
-            ind.setGenotypesAll()
+            ind.setGenotypesAll(cutoff = write_cutoffs[cycle])
 
         pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
 

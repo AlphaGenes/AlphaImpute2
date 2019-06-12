@@ -21,11 +21,13 @@ class AlphaImputeIndividual(Pedigree.Individual):
     def setupIndividual(self):
         nLoci = len(self.genotypes)
         self.segregation = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
+        self.raw_segregation = (np.full(nLoci, .5, dtype = np.float32), np.full(nLoci, .5, dtype = np.float32))
         self.originalGenotypes = self.genotypes.copy()
 
-        self.anterior = np.full((4, nLoci), 1, dtype = np.int8) # There's probably some space saving format we could do here... 
-        self.penetrance = np.full((4, nLoci), 1, dtype = np.int8) 
-        self.posterior = np.full((4, nLoci), 1, dtype = np.int8)
+        self.anterior = np.full((4, nLoci), 1, dtype = np.float32) # There's probably some space saving format we could do here... 
+        self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+        self.posterior = np.full((4, nLoci), 1, dtype = np.float32)
+        self.genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
 
     def toJit(self):
         """Returns a just in time version of itself with the same idn and holders for haplotypes and genotypes"""
@@ -33,19 +35,19 @@ class AlphaImputeIndividual(Pedigree.Individual):
         if self.genotypes is None or self.haplotypes is None:
             raise ValueError("In order to just in time an Individual, both genotypes and haplotypes need to be not None")
         nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
-        return jit_Individual(self.idn, self.genotypes, self.haplotypes, self.segregation, self.anterior, self.penetrance, self.posterior, nLoci)
+        return jit_Individual(self.idn, self.genotypes, self.haplotypes, self.segregation, self.anterior, self.penetrance, self.posterior, self.genotypeProbabilities, self.raw_segregation, nLoci)
 
-    def setGenotypesPenetrance(self):
-        self.toJit().setGenotypesFromPeelingData(False, True, False)
+    def setGenotypesPenetrance(self, cutoff = 0.99):
+        self.toJit().setGenotypesFromPeelingData(False, True, False, cutoff)
 
-    def setGenotypesAll(self):
-        self.toJit().setGenotypesFromPeelingData(True, True, True)
+    def setGenotypesAll(self, cutoff = 0.99):
+        self.toJit().setGenotypesFromPeelingData(True, True, True, cutoff)
 
-    def setGenotypesAnterior(self):
-        self.toJit().setGenotypesFromPeelingData(True, True, False)
+    def setGenotypesAnterior(self, cutoff = 0.99):
+        self.toJit().setGenotypesFromPeelingData(True, True, False, cutoff)
 
-    def setGenotypesPosterior(self):
-        self.toJit().setGenotypesFromPeelingData(False, True, True)
+    def setGenotypesPosterior(self, cutoff = 0.99):
+        self.toJit().setGenotypesFromPeelingData(False, True, True, cutoff)
 
     def clearGenotypes(self):
         self.genotypes[:] = 9
@@ -60,15 +62,18 @@ spec['genotypes'] = int8[:]
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 spec['segregation'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
-spec['anterior'] = int8[:,:]
-spec['penetrance'] = int8[:,:]
-spec['posterior'] = int8[:,:]
+spec['raw_segregation'] = numba.typeof((np.array([0, 1], dtype = np.float32), np.array([0], dtype = np.float32)))
+
+spec['anterior'] = float32[:,:]
+spec['penetrance'] = float32[:,:]
+spec['posterior'] = float32[:,:]
+spec['genotypeProbabilities'] = float32[:,:]
 
 
 
 @jitclass(spec)
 class jit_Individual(object):
-    def __init__(self, idn, genotypes, haplotypes, segregation, anterior, penetrance, posterior, nLoci):
+    def __init__(self, idn, genotypes, haplotypes, segregation, anterior, penetrance, posterior, genotypeProbabilities, raw_segregation, nLoci):
         self.idn = idn
 
         self.genotypes = genotypes
@@ -78,6 +83,10 @@ class jit_Individual(object):
         self.anterior = anterior
         self.penetrance = penetrance
         self.posterior = posterior
+
+        self.genotypeProbabilities = genotypeProbabilities
+
+        self.raw_segregation = raw_segregation
 
         self.nLoci = nLoci
 
@@ -121,9 +130,80 @@ class jit_Individual(object):
                 mat[0,i] = 0
                 mat[2,i] = 0
 
+            e = 0.001
+            for j in range(4):
+                mat[j, i] = mat[j, i]*(1-e) + e/4
 
 
-    def setGenotypesFromPeelingData(self, useAnterior = False, usePenetrance = False, usePosterior = False):
+    def setGenotypesFromPeelingData(self, useAnterior = False, usePenetrance = False, usePosterior = False, cutoff = 0.99):
+        nLoci = self.nLoci
+
+        finalGenotypes = np.full((4, nLoci), 1, dtype = np.float32) 
+        if useAnterior:
+            finalGenotypes *= self.anterior
+        if usePosterior:
+            finalGenotypes *= self.posterior
+        if usePenetrance:
+            finalGenotypes *= self.penetrance
+
+
+        self.normalize(finalGenotypes)
+        self.genotypeProbabilities[:,:] = finalGenotypes[:,:]
+
+        # finalGenotypes /= np.sum(finalGenotypes, 1)
+        # set genotypes/haplotypes from this value.
+        for i in range(nLoci):
+            self.genotypes[i] = 9
+            self.haplotypes[0][i] = 9
+            self.haplotypes[1][i] = 9
+
+
+            # Set genotype.
+            maxGenotype = 0
+            maxVal = finalGenotypes[0,i]
+
+            if finalGenotypes[1,i] + finalGenotypes[2,i] > maxVal:
+                maxGenotype = 1
+                maxVal = finalGenotypes[1,i] + finalGenotypes[2,i] 
+            if finalGenotypes[3,i] > maxVal:
+                maxGenotype = 2
+                maxVal = finalGenotypes[3,i]
+
+            if maxVal > cutoff:
+                self.genotypes[i] = maxGenotype
+
+            # Set haplotype.
+
+            hap0 = finalGenotypes[2, i] + finalGenotypes[3, i]
+            hap1 = finalGenotypes[1, i] + finalGenotypes[3, i]
+
+            if hap0 > cutoff:
+                self.haplotypes[0][i] = 1
+            if hap0 < 1 - cutoff:
+                self.haplotypes[0][i] = 0
+
+            if hap1 > cutoff:
+                self.haplotypes[1][i] = 1
+            if hap1 < 1 - cutoff:
+                self.haplotypes[1][i] = 0
+
+    def normalize(self, values):
+
+        for i in range(values.shape[1]):
+            count = 0
+            for j in range(4):
+                count += values[j, i]
+
+            for j in range(4):
+                if count != 0:
+                    values[j, i]/= count
+                else:
+                    values[j, i] = .25
+
+
+
+
+    def old_setGenotypesFromPeelingData(self, useAnterior = False, usePenetrance = False, usePosterior = False):
         nLoci = self.nLoci
 
         finalGenotypes = np.full((4, nLoci), 1, dtype = np.int8) 

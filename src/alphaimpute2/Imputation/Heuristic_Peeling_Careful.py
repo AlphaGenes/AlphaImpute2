@@ -36,26 +36,74 @@ except:
 ############
 
 
-def heuristicPeelDown(ind):
+def heuristicPeelDown(ind, cutoff = .99):
 
     # Use the individual's segregation estimate to peel down.
 
-    ind.clearGenotypes()
+    if ind.sire is not None and ind.dam is not None:
+        getAnterior(ind.toJit(), (ind.sire.toJit(), ind.dam.toJit()))
 
-    if ind.sire is not None:
-        ind.sire.setGenotypesAnterior()
+@njit
+def getAnterior(ind, parents):
 
-        fillInFromParentAndSeg(ind.segregation[0], ind.haplotypes[0], ind.sire.toJit())
-        HaplotypeOperations.align_individual(ind)
+    nLoci = len(ind.genotypes)
 
-    if ind.dam is not None:
-        ind.sire.setGenotypesAnterior()
 
-        fillInFromParentAndSeg(ind.segregation[1], ind.haplotypes[1], ind.dam.toJit())
-        HaplotypeOperations.align_individual(ind)
+    # pat_probs = getTransmittedProbs(ind.segregation[0], parents[0].genotypeProbabilities)
+    # mat_probs = getTransmittedProbs(ind.segregation[1], parents[1].genotypeProbabilities)
+    pat_probs = getTransmittedProbs_raw(ind.raw_segregation[0], parents[0].genotypeProbabilities)
+    mat_probs = getTransmittedProbs_raw(ind.raw_segregation[1], parents[1].genotypeProbabilities)
 
-    ind.toJit().setValueFromGenotypes(ind.anterior)
+    e = 0.00001
+    for i in range(nLoci):
+        pat = pat_probs[i] + e/2
+        mat = mat_probs[i] + e/2
 
+        ind.anterior[0,i] = (1-pat)*(1-mat)
+        ind.anterior[1,i] = (1-pat)*mat
+        ind.anterior[2,i] = pat*(1-mat)
+        ind.anterior[3,i] = pat*mat
+
+
+
+@njit
+def getTransmittedProbs_raw(seg, genoProbs):
+    nLoci = len(seg)
+    probs = np.full(nLoci, .5, np.float32)
+
+    for i in range(nLoci):
+        p = genoProbs[:, i]
+        
+        # tmp_raw = .5
+        # if seg[i] < 0.01:
+        #     tmp_raw = 0
+        # elif seg[i] > 0.99 and seg[i] <= 1:
+        #     tmp_raw = 1
+        # else:
+        #     tmp_raw = .5
+        
+        tmp = seg[i]
+
+        p_1 = tmp*p[1] + (1-tmp)*p[2] + p[3]
+        probs[i] = p_1
+    return probs
+
+
+@njit
+def getTransmittedProbs(seg, genoProbs):
+    nLoci = len(seg)
+    probs = np.full(nLoci, .5, np.float32)
+
+    for i in range(nLoci):
+        p = genoProbs[:, i]
+        if seg[i] == 0:
+            p_1 = p[2] + p[3]
+        if seg[i] == 1:
+            p_1 = p[1] + p[3]
+        if seg[i] == 9:
+            p_1 = .5*p[1] + .5*p[2] + p[3]
+        probs[i] = p_1
+    return probs
 
 @njit
 def fillInFromParentAndSeg(segregation, haplotype, parent):
@@ -79,7 +127,7 @@ def fillInFromParentAndSeg(segregation, haplotype, parent):
 ############
 
 
-def HeuristicPeelUp(ind):
+def HeuristicPeelUp(ind, cutoff = 0.99):
 
     # Use an individual's segregation estimate to peel up and reconstruct the individual based on their offspring's genotypes.
     if len(ind.offspring) > 1:
@@ -102,7 +150,7 @@ def HeuristicPeelUp(ind):
 
             # We peel the child up to both of their parents.
             for child in family.offspring:
-                child.setGenotypesPosterior()
+                child.setGenotypesPosterior(cutoff)
                 evaluateChild(child.toJit(), mateScore)
 
             # This is to make this work for sire or dams. Just transposing the matrix so the main individual is always the "sire".
@@ -110,13 +158,13 @@ def HeuristicPeelUp(ind):
                 mateScore = np.transpose(mateScore, [1, 0, 2])
 
             # We then collapse the scores by marginalizing over their mate's genotype.
-            mate.setGenotypesAll()
+            mate.setGenotypesAll(cutoff)
             scores += collapseScoresWithGenotypes(mateScore, mate.toJit())
 
         # We then see if we can call the scores.
         # ind.clearGenotypes()
 
-        callScore(scores, ind.posterior, threshold = 0.99)
+        set_posterior_from_scores(scores, ind.posterior)
         # HaplotypeOperations.align_individual(ind)
 
         # ind.toJit().setValueFromGenotypes(ind.posterior)
@@ -268,6 +316,17 @@ def callScore(scores, posterior, threshold):
         if np.sum(posterior[:,i]) == 0:
             print(posterior[:,i])
             print(scores[:,i])
+@njit
+def set_posterior_from_scores(scores, posterior):
+    nLoci = scores.shape[1]
+    posterior[:,:] = 1
+    e = 0.001
+    # Maybe could do below in a cleaner fasion, but this is nice and explicit.
+    for i in range(nLoci) :
+        vals = expNorm_1D(scores[:,i])
+
+        for j in range(4):
+            posterior[j, i] = vals[j]*(1-e) + e/4           
 # @njit
 # def callScore(scores, threshold, ind):
 #     # I am going to assume threshold > .5.
@@ -384,9 +443,9 @@ def setSegregation(ind, cutoff = 0.99):
         pointEstimates = np.full((4, nLoci), 1, dtype = np.float32)
 
         # Set genotypes for individual and parents.
-        ind.setGenotypesPosterior()
-        ind.sire.setGenotypesAll()
-        ind.dam.setGenotypesAll()
+        ind.setGenotypesPosterior(cutoff)
+        ind.sire.setGenotypesAll(cutoff)
+        ind.dam.setGenotypesAll(cutoff)
 
         fillPointEstimates(pointEstimates, ind.toJit(), ind.sire.toJit(), ind.dam.toJit())
 
@@ -394,15 +453,18 @@ def setSegregation(ind, cutoff = 0.99):
         smoothedEstimates = smoothPointSeg(pointEstimates, 1.0/nLoci)
 
         # Then call the segregation values.
-        callSegregation(ind.segregation, smoothedEstimates, cutoff = cutoff)
+        callSegregation(ind.segregation, ind.raw_segregation, smoothedEstimates, cutoff = 0.99)
 
 @njit
-def callSegregation(segregation, estimate, cutoff):
+def callSegregation(segregation, raw_segregation, estimate, cutoff):
     nLoci = len(segregation[0])
     for i in range(nLoci):
 
         paternalSeg = estimate[2, i] + estimate[3,i]
         maternalSeg = estimate[1, i] + estimate[3,i]
+
+        raw_segregation[0][i] = paternalSeg
+        raw_segregation[1][i] = maternalSeg
 
         if paternalSeg > cutoff:
             segregation[0][i] = 1
