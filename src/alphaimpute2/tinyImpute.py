@@ -132,6 +132,52 @@ def runLDPhasing(pedigree, indList = None):
     runPhasing(phasingInfo, nHets = [], finalNHet = 20)
 
 
+def runHeuristicPeeling(pedigree):
+
+
+
+    for ind in pedigree:
+        ind.toJit().setValueFromGenotypes(ind.penetrance)
+
+    cutoffs =       [.99, .9, .9, .9, .9]
+    write_cutoffs = [.99, .9, .7, .6, .3]
+    for cycle in range(len(cutoffs)):
+        print("Performing initial pedigree imputation")
+
+        for ind in pedigree:
+            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
+            Heuristic_Peeling_Careful.heuristicPeelDown(ind, cutoff = cutoffs[cycle])
+
+        for ind in reversed(pedigree):
+            # Heuristic_Peel_Up.singleLocusPeelUp(ind)
+            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
+            Heuristic_Peeling_Careful.HeuristicPeelUp(ind, cutoff = cutoffs[cycle])
+
+
+        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
+        # for ind in pedigree:
+        #     genotypeProbs[ind.idn,:,:] = ind.genotypeProbabilities        
+        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".probs." + str(cycle))
+     
+        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
+        # for ind in pedigree:
+        #     genotypeProbs[ind.idn,:,:] = ind.posterior        
+        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".posterior." + str(cycle))
+     
+        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
+        # for ind in pedigree:
+        #     genotypeProbs[ind.idn,:,:] = ind.penetrance        
+        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".penetrance." + str(cycle))
+
+
+
+
+        for ind in pedigree:
+            ind.setGenotypesAll(cutoff = write_cutoffs[cycle])
+
+        pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
+
+
     #####################################
     #####################################
     ####                            #####
@@ -154,10 +200,6 @@ def getArgs() :
     core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
 
-    core_impute_parser.add_argument('-peelup', action='store_true', required=False, help='Flag to peel up.')
-    core_impute_parser.add_argument('-peeldown', action='store_true', required=False, help='Flag to peel down.')
-    core_impute_parser.add_argument('-peeldown_multi', action='store_true', required=False, help='Flag to peel down with the fancier peeling.')
-
     return InputOutput.parseArgs("AlphaFamImpute", parser)
 
 
@@ -175,35 +217,6 @@ def main():
     setupImputation(pedigree)
 
 
-    for ind in pedigree:
-        ind.toJit().setValueFromGenotypes(ind.penetrance)
-        ind.penetrance = ind.penetrance*(1-.01) + 0.01/4
-    cutoffs =       [.99, .9, .9, .9, .9]
-    write_cutoffs = [.99, .9, .7, .6, .3]
-    for cycle in range(len(cutoffs)):
-
-        for ind in pedigree:
-            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
-            Heuristic_Peeling_Careful.heuristicPeelDown(ind, cutoff = cutoffs[cycle])
-
-        for ind in reversed(pedigree):
-            # Heuristic_Peel_Up.singleLocusPeelUp(ind)
-            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
-            Heuristic_Peeling_Careful.HeuristicPeelUp(ind, cutoff = cutoffs[cycle])
-
-        print("Performing initial pedigree imputation")
-
-
-        for ind in pedigree:
-            ind.setGenotypesAll(cutoff = write_cutoffs[cycle])
-
-        pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
-
-    # for ind in pedigree:
-    #     ind.setGenotypesPenetrance()
-    # print("Read in and initial setup", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
-
-    # if not args.no_impute: 
     if False:
         # Perform initial imputation + phasing before sending it to the phasing program to get phased.
         # The imputeBeforePhasing just runs a peel-down, with ancestors included.        

@@ -36,33 +36,35 @@ except:
 ############
 
 
+@profile
 def heuristicPeelDown(ind, cutoff = .99):
 
     # Use the individual's segregation estimate to peel down.
-
     if ind.sire is not None and ind.dam is not None:
-        getAnterior(ind.toJit(), (ind.sire.toJit(), ind.dam.toJit()))
-
+        ind.sire.setGenotypesAll()
+        ind.dam.setGenotypesAll()
+        newAnterior = getAnterior(ind.toJit(), (ind.sire.toJit(), ind.dam.toJit()))
+        ind.setAnterior(newAnterior)
 @njit
 def getAnterior(ind, parents):
 
     nLoci = len(ind.genotypes)
 
+    anterior = np.full((4, nLoci), 0, dtype = np.float32)
 
-    # pat_probs = getTransmittedProbs(ind.segregation[0], parents[0].genotypeProbabilities)
-    # mat_probs = getTransmittedProbs(ind.segregation[1], parents[1].genotypeProbabilities)
     pat_probs = getTransmittedProbs_raw(ind.raw_segregation[0], parents[0].genotypeProbabilities)
     mat_probs = getTransmittedProbs_raw(ind.raw_segregation[1], parents[1].genotypeProbabilities)
 
     e = 0.00001
     for i in range(nLoci):
-        pat = pat_probs[i] + e/2
-        mat = mat_probs[i] + e/2
+        pat = pat_probs[i]*(1-e) + e/2
+        mat = mat_probs[i]*(1-e) + e/2
 
-        ind.anterior[0,i] = (1-pat)*(1-mat)
-        ind.anterior[1,i] = (1-pat)*mat
-        ind.anterior[2,i] = pat*(1-mat)
-        ind.anterior[3,i] = pat*mat
+        anterior[0,i] = (1-pat)*(1-mat)
+        anterior[1,i] = (1-pat)*mat
+        anterior[2,i] = pat*(1-mat)
+        anterior[3,i] = pat*mat
+    return anterior
 
 
 
@@ -73,17 +75,7 @@ def getTransmittedProbs_raw(seg, genoProbs):
 
     for i in range(nLoci):
         p = genoProbs[:, i]
-        
-        # tmp_raw = .5
-        # if seg[i] < 0.01:
-        #     tmp_raw = 0
-        # elif seg[i] > 0.99 and seg[i] <= 1:
-        #     tmp_raw = 1
-        # else:
-        #     tmp_raw = .5
-        
         tmp = seg[i]
-
         p_1 = tmp*p[1] + (1-tmp)*p[2] + p[3]
         probs[i] = p_1
     return probs
@@ -127,6 +119,7 @@ def fillInFromParentAndSeg(segregation, haplotype, parent):
 ############
 
 
+@profile
 def HeuristicPeelUp(ind, cutoff = 0.99):
 
     # Use an individual's segregation estimate to peel up and reconstruct the individual based on their offspring's genotypes.
@@ -279,43 +272,46 @@ def collapseScoresWithGenotypes(scores, mate):
     # Assume alternative parent is second set of genotypes.
     finalScores = np.full((4, nLoci), 0, dtype = np.float32)
 
+    e = 0.001
+
     for i in range(nLoci):
         # For each loci, get the genotype probability, then marginalize.
         # Could multithread.
-        altGenoProbs = getGenotypeProbabilities(mate, i)
+        altGenoProbs = mate.genotypeProbabilities[:,i]
+        for j in range(4):
+            altGenoProbs[j] = altGenoProbs[j]*(1-e) + e/4
+
+
+        # altGenoProbs = getGenotypeProbabilities(mate, i)
+        # diff = 0
+        # for j in range(4):
+        #     diff += np.abs(altGenoProbs[j] - tmp[j])
+        # if diff > 0.05:
+        #     print(altGenoProbs, getGenotypeProbabilities(mate, i), mate.genotypes[i], mate.haplotypes[0][i], mate.haplotypes[1][i])
+
         logMarginalize(scores[:,:,i], altGenoProbs, finalScores[:,i])
     return finalScores
 
 @njit
 def logMarginalize(scores, altGenoProbs, finalScores):
-        # Values is the unnormalized joint probability distribution for parental genotypes.
-        values = exp_2D(scores)
-        # tmpScore is the unnormalized distribution for the first parents genotypes marginalized over the second.
-        tmpScore = np.full(4, 0, dtype = np.float32)
-        for j in range(4):
-            for k in range(4):
-                tmpScore[j] += values[j,k]*altGenoProbs[k]
+    # Values is the unnormalized joint probability distribution for parental genotypes.
+    values = exp_2D(scores)
+    # tmpScore is the unnormalized distribution for the first parents genotypes marginalized over the second.
+    tmpScore = np.full(4, 0, dtype = np.float32)
+    for j in range(4):
+        for k in range(4):
+            tmpScore[j] += values[j,k]*altGenoProbs[k]
 
-        for j in range(4):
-            # The 1e-8 represents a small genotype uncertainty term.
-            finalScores[j] = np.log(tmpScore[j] + 1e-8)
+    for j in range(4):
+        tmpScore[j] += 1e-8
 
-@njit
-def callScore(scores, posterior, threshold):
-    nLoci = scores.shape[1]
-    posterior[:,:] = 1
+    norm(tmpScore)
+    for j in range(4):
+        # The 1e-8 represents a small genotype uncertainty term.
+        finalScores[j] = np.log(tmpScore[j])
 
-    # Maybe could do below in a cleaner fasion, but this is nice and explicit.
-    for i in range(nLoci) :
-        vals = expNorm_1D(scores[:,i])
 
-        for j in range(4):
-            if vals[j] < 1-threshold :
-                posterior[j, i] = 0
 
-        if np.sum(posterior[:,i]) == 0:
-            print(posterior[:,i])
-            print(scores[:,i])
 @njit
 def set_posterior_from_scores(scores, posterior):
     nLoci = scores.shape[1]
@@ -324,9 +320,11 @@ def set_posterior_from_scores(scores, posterior):
     # Maybe could do below in a cleaner fasion, but this is nice and explicit.
     for i in range(nLoci) :
         vals = expNorm_1D(scores[:,i])
-
+        
         for j in range(4):
             posterior[j, i] = vals[j]*(1-e) + e/4           
+
+
 # @njit
 # def callScore(scores, threshold, ind):
 #     # I am going to assume threshold > .5.
@@ -381,12 +379,12 @@ def expNorm_1D(mat):
         mat[a] -= maxVal
 
     # Should flag for better numba-ness.
-    tmp = np.exp(mat)
-    total = 0
+    tmp = np.full(4, 0, dtype = np.float32)
     for a in range(4):
-        total += tmp[a]
-    for a in range(4):
-        tmp[a] /= total
+        tmp[a] = np.exp(mat[a])
+
+    norm(tmp)
+
     return tmp
 
 @njit
@@ -425,6 +423,16 @@ def exp_2D(mat):
     for a in range(4):
         for b in range(4):
             tmp[a, b] = np.exp(mat[a, b])
+
+
+    # Normalize.
+    score = 0
+    for a in range(4):
+        for b in range(4):
+            score += mat[a, b]
+    for a in range(4):
+        for b in range(4):
+            mat[a, b]/=4
     return tmp
 
 ############
@@ -433,6 +441,7 @@ def exp_2D(mat):
 #
 ############
 
+@profile
 def setSegregation(ind, cutoff = 0.99):
 
     # Roughly the idea is something like:

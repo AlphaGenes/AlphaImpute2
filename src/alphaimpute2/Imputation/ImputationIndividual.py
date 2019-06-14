@@ -1,12 +1,17 @@
-# I want to move this to it's own module but haven't had the time yet.
-
 from ..tinyhouse import Pedigree
-
 
 import numba
 from numba import jit, int8, int64, boolean, deferred_type, optional, jitclass, float32, double
 from collections import OrderedDict
 import numpy as np
+
+
+try:
+    profile
+except:
+    def profile(x): 
+        return x
+
 
 class AlphaImputeIndividual(Pedigree.Individual):
     def __init__(self, idx, idn):
@@ -17,6 +22,8 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.anterior = None
         self.penetrance = None
         self.posterior = None
+
+        self.currentState = None
 
     def setupIndividual(self):
         nLoci = len(self.genotypes)
@@ -29,30 +36,57 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.posterior = np.full((4, nLoci), 1, dtype = np.float32)
         self.genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
 
-    def toJit(self):
-        """Returns a just in time version of itself with the same idn and holders for haplotypes and genotypes"""
+        self.setJit()
 
+    def setJit(self):
+        # Set the 
         if self.genotypes is None or self.haplotypes is None:
             raise ValueError("In order to just in time an Individual, both genotypes and haplotypes need to be not None")
         nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
-        return jit_Individual(self.idn, self.genotypes, self.haplotypes, self.segregation, self.anterior, self.penetrance, self.posterior, self.genotypeProbabilities, self.raw_segregation, nLoci)
+
+        self.jit_view = jit_Individual(self.idn, self.genotypes, self.haplotypes, self.segregation, self.anterior, self.penetrance, self.posterior, self.genotypeProbabilities, self.raw_segregation, nLoci)
+
+
+    def toJit(self):
+        return self.jit_view
+
 
     def setGenotypesPenetrance(self, cutoff = 0.99):
-        self.toJit().setGenotypesFromPeelingData(False, True, False, cutoff)
+        # if self.currentState != "penetrance":
+        #     self.currentState = "penetrance"
+        self.jit_view.setGenotypesFromPeelingData(False, True, False, cutoff)
 
     def setGenotypesAll(self, cutoff = 0.99):
-        self.toJit().setGenotypesFromPeelingData(True, True, True, cutoff)
+        # if self.currentState != "all":
+        #     self.currentState = "all"
+        self.jit_view.setGenotypesFromPeelingData(True, True, True, cutoff)
 
     def setGenotypesAnterior(self, cutoff = 0.99):
-        self.toJit().setGenotypesFromPeelingData(True, True, False, cutoff)
+        # if self.currentState != "anterior" :
+        #     self.currentState = "anterior" 
+        self.jit_view.setGenotypesFromPeelingData(True, True, False, cutoff)
 
     def setGenotypesPosterior(self, cutoff = 0.99):
-        self.toJit().setGenotypesFromPeelingData(False, True, True, cutoff)
+        # if self.currentState != "posterior":
+        #     self.currentState = "posterior"
+        self.jit_view.setGenotypesFromPeelingData(False, True, True, cutoff)
 
     def clearGenotypes(self):
         self.genotypes[:] = 9
         self.haplotypes[0][:] = 9
         self.haplotypes[1][:] = 9
+
+
+    def setAnterior(self, newAnterior):
+        self.anterior = newAnterior
+        self.jit.anterior = self.anterior
+        self.currentState = None
+
+    def setPosterior(self, newPosterior):
+        self.posterior = newPosterior
+        self.jit.posterior = self.posterior
+        self.currentState = None
+
 
 spec = OrderedDict()
 spec['idn'] = int64
@@ -130,9 +164,12 @@ class jit_Individual(object):
                 mat[0,i] = 0
                 mat[2,i] = 0
 
-            e = 0.001
+            e = 0.01
+            count = 0
             for j in range(4):
-                mat[j, i] = mat[j, i]*(1-e) + e/4
+                count += mat[j, i]
+            for j in range(4):
+                mat[j, i] = mat[j, i]/count*(1-e) + e/4
 
 
     def setGenotypesFromPeelingData(self, useAnterior = False, usePenetrance = False, usePosterior = False, cutoff = 0.99):
@@ -145,6 +182,12 @@ class jit_Individual(object):
             finalGenotypes *= self.posterior
         if usePenetrance:
             finalGenotypes *= self.penetrance
+
+
+        for i in range(nLoci):
+            for j in range(4):
+                if finalGenotypes[j, i] < -0.0001:
+                    print(self.anterior[:, i], self.posterior[:, i], self.penetrance[:, i], finalGenotypes[:, i]) 
 
 
         self.normalize(finalGenotypes)
@@ -179,12 +222,12 @@ class jit_Individual(object):
 
             if hap0 > cutoff:
                 self.haplotypes[0][i] = 1
-            if hap0 < 1 - cutoff:
+            elif hap0 < 1 - cutoff:
                 self.haplotypes[0][i] = 0
 
             if hap1 > cutoff:
                 self.haplotypes[1][i] = 1
-            if hap1 < 1 - cutoff:
+            elif hap1 < 1 - cutoff:
                 self.haplotypes[1][i] = 0
 
     def normalize(self, values):
@@ -199,91 +242,6 @@ class jit_Individual(object):
                     values[j, i]/= count
                 else:
                     values[j, i] = .25
-
-
-
-
-    def old_setGenotypesFromPeelingData(self, useAnterior = False, usePenetrance = False, usePosterior = False):
-        nLoci = self.nLoci
-
-        finalGenotypes = np.full((4, nLoci), 1, dtype = np.int8) 
-        for i in range(nLoci):
-            for j in range(4):
-                if useAnterior:
-                    if self.anterior[j, i] == 0 :
-                        finalGenotypes[j, i] = 0
-                if usePosterior:
-                    if self.posterior[j, i] == 0 :
-                        finalGenotypes[j, i] = 0
-                if usePenetrance:
-                    if self.penetrance[j, i] == 0 :
-                        finalGenotypes[j, i] = 0
-
-
-            g = finalGenotypes[:,i]
-            count = g[0] + g[1] + g[2] + g[3]
-            if count == 0:
-                for j in range(4):
-                    finalGenotypes[j, i] = self.penetrance[j, i] # In places where no consensus happens, default to anterior. 
-        # Final genotypes represents a set of genotype probabilities. There are... 16 options, 8 of which we care about.
-
-        for i in range(nLoci):
-            g = finalGenotypes[:,i]
-            
-            count = g[0] + g[1] + g[2] + g[3]
-            # This all feels kinda messy, but it works?
-            # Only one genotype option: genotype + haplotype known.
-            if count == 1:
-                if g[0] == 1 :
-                    self.genotypes[i] = 0
-                    self.haplotypes[0][i] = 0
-                    self.haplotypes[1][i] = 0
-                
-                elif g[1] == 1:
-                    self.genotypes[i] = 1
-                    self.haplotypes[0][i] = 0
-                    self.haplotypes[1][i] = 1
-
-                elif g[2] == 1:
-                    self.genotypes[i] = 1
-                    self.haplotypes[0][i] = 1
-                    self.haplotypes[1][i] = 0
-
-                elif g[3] == 1:
-                    self.genotypes[i] = 2
-                    self.haplotypes[0][i] = 1
-                    self.haplotypes[1][i] = 1
-
-            elif count == 2:
-                # We generally can call one haplotype here, but probably not both.                
-                self.genotypes[i] = 9
-                if g[0] == 1 and g[1] == 1:
-                    self.haplotypes[0][i] = 0
-                    self.haplotypes[1][i] = 9
-                if g[2] == 1 and g[3] == 1:
-                    self.haplotypes[0][i] = 1
-                    self.haplotypes[1][i] = 9
-                
-                if g[0] == 1 and g[2] == 1:
-                    self.haplotypes[0][i] = 9
-                    self.haplotypes[1][i] = 0
-                if g[1] == 1 and g[3] == 1:
-                    self.haplotypes[0][i] = 9
-                    self.haplotypes[1][i] = 1
-
-                if g[1] == 1 and g[2] == 1:
-                    # We can call the genotype here, but not the haplotype. 
-                    # There's another state like this that we are going to ignore.
-                    self.genotypes[i] = 1 
-                    self.haplotypes[0][i] = 9
-                    self.haplotypes[1][i] = 9
-            else:
-                # if count == 0: 
-                    # print("0 state")
-                    # print(self.anterior[:,i], self.posterior[:,i], self.penetrance[:,i])
-                self.genotypes[i] = 9
-                self.haplotypes[0][i] = 9
-                self.haplotypes[1][i] = 9
 
 
 
