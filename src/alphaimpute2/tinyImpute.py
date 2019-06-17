@@ -1,5 +1,6 @@
 from .tinyhouse import Pedigree
 from .tinyhouse import InputOutput
+from .tinyhouse import ProbMath
 
 from .Imputation import Imputation
 from .Imputation import PedigreeImputation
@@ -131,53 +132,6 @@ def runLDPhasing(pedigree, indList = None):
 
     runPhasing(phasingInfo, nHets = [], finalNHet = 20)
 
-
-def runHeuristicPeeling(pedigree):
-
-
-
-    for ind in pedigree:
-        ind.toJit().setValueFromGenotypes(ind.penetrance)
-
-    cutoffs =       [.99, .9, .9, .9, .9]
-    write_cutoffs = [.99, .9, .7, .6, .3]
-    for cycle in range(len(cutoffs)):
-        print("Performing initial pedigree imputation")
-
-        for ind in pedigree:
-            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
-            Heuristic_Peeling_Careful.heuristicPeelDown(ind, cutoff = cutoffs[cycle])
-
-        for ind in reversed(pedigree):
-            # Heuristic_Peel_Up.singleLocusPeelUp(ind)
-            Heuristic_Peeling_Careful.setSegregation(ind, cutoff = cutoffs[cycle])
-            Heuristic_Peeling_Careful.HeuristicPeelUp(ind, cutoff = cutoffs[cycle])
-
-
-        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
-        # for ind in pedigree:
-        #     genotypeProbs[ind.idn,:,:] = ind.genotypeProbabilities        
-        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".probs." + str(cycle))
-     
-        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
-        # for ind in pedigree:
-        #     genotypeProbs[ind.idn,:,:] = ind.posterior        
-        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".posterior." + str(cycle))
-     
-        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
-        # for ind in pedigree:
-        #     genotypeProbs[ind.idn,:,:] = ind.penetrance        
-        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".penetrance." + str(cycle))
-
-
-
-
-        for ind in pedigree:
-            ind.setGenotypesAll(cutoff = write_cutoffs[cycle])
-
-        pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
-
-
     #####################################
     #####################################
     ####                            #####
@@ -216,6 +170,7 @@ def main():
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
+    Heuristic_Peeling_Careful.runHeuristicPeeling(pedigree, args)
 
     if False:
         # Perform initial imputation + phasing before sending it to the phasing program to get phased.
@@ -242,7 +197,6 @@ def main():
         InputOutput.writeOutGenotypesPlink(pedigree, args.out)
     else:
         pedigree.writeGenotypes(args.out + ".genotypes")
-        # pedigree.writeGenotypes_prefil(args.out + ".genotypes")
         pedigree.writePhase(args.out + ".phase")
     print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
