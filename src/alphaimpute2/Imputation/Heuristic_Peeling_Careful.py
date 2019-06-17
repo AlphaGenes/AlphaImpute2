@@ -9,6 +9,10 @@ from ..tinyhouse import ProbMath
 
 from . import Imputation
 
+import concurrent.futures
+from itertools import repeat
+
+
 np.core.arrayprint._line_width = 200
 np.set_printoptions(precision=4, suppress=True, edgeitems=3)
 
@@ -62,69 +66,71 @@ def runHeuristicPeeling(pedigree, args):
         pedigreePeelDown(pedigree, args, cutoffs[cycle])
         pedigreePeelUp(pedigree, args, cutoffs[cycle])
 
-        # for ind in reversed(pedigree):
-        #     # Heuristic_Peel_Up.singleLocusPeelUp(ind)
-        #     setSegregation(ind, cutoff = cutoffs[cycle])
-        #     HeuristicPeelUp(ind, cutoff = cutoffs[cycle])
-
-        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
-        # for ind in pedigree:
-        #     genotypeProbs[ind.idn,:,:] = ind.genotypeProbabilities        
-        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".probs." + str(cycle))
-     
-        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
-        # for ind in pedigree:
-        #     genotypeProbs[ind.idn,:,:] = ind.posterior        
-        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".posterior." + str(cycle))
-     
-        # genotypeProbs = np.full((pedigree.maxIdn, 4, pedigree.nLoci), 0, dtype = np.float32)
-        # for ind in pedigree:
-        #     genotypeProbs[ind.idn,:,:] = ind.penetrance        
-        # InputOutput.writeIdnIndexedMatrix(pedigree, genotypeProbs, args.out + ".penetrance." + str(cycle))
-
-
-
-
-        # for ind in pedigree:
-        #     ind.setGenotypesAll(cutoff = write_cutoffs[cycle])
-
-        # pedigree.writeGenotypes(args.out + ".genotypes." + str(cycle))
-
-
     for ind in pedigree:
-        ind.setGenotypesAll(cutoff = .3)
+        ind.jit_view.setGenotypesAll(.3)
 
     pedigree.writeGenotypes(args.out + ".genotypes." + str(4))
 
-
+@profile
 def pedigreePeelDown(pedigree, args, cutoff):
 
-    for generation in pedigree.generations:
-        for parent in generation.parents:
-            parent.setGenotypesAll(cutoff)
+    if args.maxthreads == 1:
+        for generation in pedigree.generations:
+            for parent in generation.parents:
+                parent.jit_view.setGenotypesAll(cutoff)
 
-        for ind in generation.individuals:
-            ind.setGenotypesPosterior(cutoff)
+            for ind in generation.individuals:
+                ind.jit_view.setGenotypesPosterior(cutoff)
 
-        for ind in generation.individuals:
-            setSegregation(ind, cutoff = cutoff, set_genotypes = False)
-            heuristicPeelDown(ind)
+            for ind in generation.individuals:
+                setSegregation(ind)
+                heuristicPeelDown(ind)
+    else:
+        for generation in pedigree.generations:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
+                executor.map(lambda ind, cutoff: ind.jit_view.setGenotypesAll(cutoff), generation.parents, repeat(cutoff))
+                executor.map(lambda ind, cutoff: ind.jit_view.setGenotypesPosterior(cutoff), generation.individuals, repeat(cutoff))
+                executor.map(setSegregation, generation.individuals)
+                executor.map(heuristicPeelDown, generation.individuals)
 
 
+# if args.maxthreads > 1:
+#     with concurrent.futures.ThreadPoolExecutor(max_workers=nWorkers) as executor:
+#          results = executor.map(Peeling.peel, jit_families, repeat(Peeling.PEEL_DOWN), repeat(peelingInfo), repeat(singleLocusMode))
+# else:
+#     for family in jit_families:
+#         Peeling.peel(family, Peeling.PEEL_DOWN, peelingInfo, singleLocusMode)
 
-
+@profile
 def pedigreePeelUp(pedigree, args, cutoff):
+    if args.maxthreads == 1:
 
-    for generation in reversed(pedigree.generations):
-        for parent in generation.parents:
-            parent.setGenotypesAll(cutoff)
+        for generation in reversed(pedigree.generations):
+            for parent in generation.parents:
+                parent.jit_view.setGenotypesAll(cutoff)
 
-        for ind in generation.individuals:
-            ind.setGenotypesPosterior(cutoff)
+            for ind in generation.individuals:
+                ind.setPosteriorFromNew()
+                ind.jit_view.setGenotypesPosterior(cutoff)
 
-        for ind in generation.individuals:
-            setSegregation(ind, cutoff = cutoff)
-            heuristicPeelUp(ind, cutoff = cutoff)
+            for ind in generation.individuals:
+                setSegregation(ind)
+
+            for family in generation.families:
+                heuristicPeelUp_family(family)
+    else:
+        for generation in pedigree.generations:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
+                # Set parents
+                executor.map(lambda ind, cutoff: ind.jit_view.setGenotypesAll(cutoff), generation.parents, repeat(cutoff))
+
+                # Re-align offspring
+                executor.map(lambda ind: ind.setPosteriorFromNew(), generation.individuals)
+                executor.map(lambda ind, cutoff: ind.jit_view.setGenotypesPosterior(cutoff), generation.individuals, repeat(cutoff))
+                executor.map(setSegregation, generation.individuals)
+
+                # Run per-family peeling.
+                executor.map(heuristicPeelUp_family, generation.families)
 
 
 
@@ -143,7 +149,8 @@ def heuristicPeelDown(ind):
     if ind.sire is not None and ind.dam is not None:
         newAnterior = getAnterior(ind.toJit(), (ind.sire.toJit(), ind.dam.toJit()))
         ind.setAnterior(newAnterior)
-@njit
+
+@jit(nopython=True, nogil = True)
 def getAnterior(ind, parents):
 
     nLoci = len(ind.genotypes)
@@ -167,7 +174,7 @@ def getAnterior(ind, parents):
 
 
 
-@njit
+@jit(nopython=True, nogil = True)
 def getTransmittedProbs(seg, genoProbs):
     # For each loci, calculate the probability of the parent transmitting a 1 allele.
     # This will use the child's segregation value, and the parent's genotype probabilities.
@@ -190,47 +197,33 @@ def getTransmittedProbs(seg, genoProbs):
 
 
 @profile
-def heuristicPeelUp(ind, cutoff = 0.99):
+def heuristicPeelUp_family(fam):
 
     # Use an individual's segregation estimate to peel up and reconstruct the individual based on their offspring's genotypes.
-    if len(ind.offspring) > 1:
-        nLoci = len(ind.genotypes)
+    nLoci = len(fam.sire.genotypes)
 
-        # Scores represent the log genotype probabilities across all mates
-        # Our goal is to generate join scores for the sire and dam for each parent, and then join them together for a single score for a single parent.
-        scores = np.full((4, nLoci), 0, dtype = np.float32)
+    # Scores represent the log genotype probabilities across all mates
+    sire_scores = np.full((4, nLoci), 0, dtype = np.float32)
+    dam_scores = np.full((4, nLoci), 0, dtype = np.float32)
 
-        for family in ind.families:
-            # For each family we want to generate joint genotype distributions for the sire and dam.
+    combined_score = np.full((4, 4, nLoci), 0, dtype = np.float32)
 
-            mateScore = np.full((4, 4, nLoci), 0, dtype = np.float32)
-            if family.sire is ind:
-                mate = family.dam
-                mateIsSire = False
-            if family.dam is ind:
-                mate = family.sire
-                mateIsSire = True
+    # We peel the child up to both of their parents.
+    for child in fam.offspring:
+        evaluateChild(child.toJit(), combined_score)
 
-            # We peel the child up to both of their parents.
-            for child in family.offspring:
-                child.setGenotypesPosterior(cutoff)
-                evaluateChild(child.toJit(), mateScore)
+    # set the sire scores.
+    sire_scores = collapseScoresWithGenotypes(combined_score, fam.dam.toJit())
+    fam.sire.addPosterior(sire_scores, fam.idn)
 
-            # This is to make this work for sire or dams. Just transposing the matrix so the main individual is always the "sire".
-            if mateIsSire :
-                mateScore = np.transpose(mateScore, [1, 0, 2])
+    # Rotate the matrix to get the dam scores.
+    combined_score = np.transpose(combined_score, [1, 0, 2])
 
-            # We then collapse the scores by marginalizing over their mate's genotype.
-            mate.setGenotypesAll(cutoff)
-            scores += collapseScoresWithGenotypes(mateScore, mate.toJit())
-
-        # We then see if we can call the scores.
-
-        newPosterior = set_posterior_from_scores(scores)
-        ind.setPosterior(newPosterior)
+    dam_scores = collapseScoresWithGenotypes(combined_score, fam.sire.toJit())
+    fam.dam.addPosterior(dam_scores, fam.idn)
 
 
-@njit
+@jit(nopython=True, nogil = True)
 def evaluateChild(child, scores):
     nLoci = scores.shape[2]
     for i in range(nLoci):
@@ -240,7 +233,7 @@ def evaluateChild(child, scores):
                 for k in range(4):
                     scores[j, k, i] += segTensor[j, k]
 
-@njit
+@jit(nopython=True, nogil = True)
 def getLogSegregationForGenotype(child, i):
 
     # Basically we want to be able to go from seg[0] + seg[1] + genotype + hap[0] + hap[1] => joint parental genotype.
@@ -256,7 +249,7 @@ def getLogSegregationForGenotype(child, i):
     geno = child.genotypes[i]
     return logGenotypeSegregationTensor[seg0, seg1, hap0, hap1, geno]
 
-@njit
+@jit(nopython=True, nogil = True)
 def convert_seg_to_int(val, threshold):
     if val < 1-threshold:
         return 0
@@ -265,7 +258,7 @@ def convert_seg_to_int(val, threshold):
     return 9
 
 
-@njit
+@jit(nopython=True, nogil = True)
 def collapseScoresWithGenotypes(scores, mate):
     nLoci = len(mate.genotypes)
     # Assume alternative parent is second set of genotypes.
@@ -290,7 +283,7 @@ def collapseScoresWithGenotypes(scores, mate):
         logMarginalize(scores[:,:,i], altGenoProbs, finalScores[:,i])
     return finalScores
 
-@njit
+@jit(nopython=True, nogil = True)
 def logMarginalize(scores, altGenoProbs, finalScores):
     # Values is the unnormalized joint probability distribution for parental genotypes.
     values = exp_2D_norm(scores)
@@ -310,7 +303,7 @@ def logMarginalize(scores, altGenoProbs, finalScores):
 
 
 
-@njit
+@jit(nopython=True, nogil = True)
 def set_posterior_from_scores(scores):
     nLoci = scores.shape[1]
     posterior = np.full((4, nLoci), 1, dtype = np.float32)
@@ -330,7 +323,7 @@ def set_posterior_from_scores(scores):
 ############
 
 @profile
-def setSegregation(ind, cutoff = 0.99, set_genotypes = True):
+def setSegregation(ind):
 
     # Roughly the idea is something like:
     # Grab the individual's genotype (or whatever we're using).
@@ -340,11 +333,6 @@ def setSegregation(ind, cutoff = 0.99, set_genotypes = True):
 
         # # Set genotypes for individual and parents.
         
-        if set_genotypes:
-            ind.setGenotypesPosterior(cutoff)
-            ind.sire.setGenotypesAll(cutoff)
-            ind.dam.setGenotypesAll(cutoff)
-
         pointEstimates = np.full((4, nLoci), 1, dtype = np.float32)
         fillPointEstimates(pointEstimates, ind.toJit(), ind.sire.toJit(), ind.dam.toJit())
 
@@ -354,7 +342,7 @@ def setSegregation(ind, cutoff = 0.99, set_genotypes = True):
         # Then call the segregation values.
         callSegregation(ind.segregation, smoothedEstimates)
 
-@njit
+@jit(nopython=True, nogil = True)
 def callSegregation(segregation, estimate):
     nLoci = len(segregation[0])
     for i in range(nLoci):
@@ -365,7 +353,7 @@ def callSegregation(segregation, estimate):
         segregation[0][i] = paternalSeg
         segregation[1][i] = maternalSeg
 
-@njit
+@jit(nopython=True, nogil = True)
 def fillPointEstimates(pointEstimates, ind, sire, dam):
     nLoci = pointEstimates.shape[1]
     e = 0.01 # Assume 1% genotyping error.
@@ -483,7 +471,7 @@ def smoothPointSeg(pointSeg, transmission):
 #
 ###########
 
-@njit
+@jit(nopython=True, nogil = True)
 def norm_1D(mat):
     total = 0
     for i in range(len(mat)):
@@ -492,7 +480,7 @@ def norm_1D(mat):
         mat[i] /= total
 
 
-@jit(nopython=True)
+@jit(nopython=True, nogil = True)
 def exp_1D_norm(mat):
     # Matrix is 4: Output is to take the exponential of the matrix and normalize each locus. We need to make sure that there are not any overflow values.
     # Note, this changes the matrix in place by a constant.
@@ -513,7 +501,7 @@ def exp_1D_norm(mat):
     return tmp
 
 
-@jit(nopython=True)
+@jit(nopython=True, nogil = True)
 def exp_2D_norm(mat):
     # Matrix is 4x4: Output is to take the exponential of the matrix and normalize each locus. We need to make sure that there are not any overflow values.
     # Note, this changes the matrix (in place).

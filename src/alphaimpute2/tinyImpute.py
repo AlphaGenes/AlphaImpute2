@@ -170,7 +170,9 @@ def main():
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
+    startTime = datetime.datetime.now()
     Heuristic_Peeling_Careful.runHeuristicPeeling(pedigree, args)
+    print("Peeling", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
     if False:
         # Perform initial imputation + phasing before sending it to the phasing program to get phased.
