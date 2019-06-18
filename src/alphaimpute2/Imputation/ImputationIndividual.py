@@ -58,6 +58,11 @@ class AlphaImputeIndividual(Pedigree.Individual):
     def toJit(self):
         return self.jit_view
 
+    def setAnterior(self, newAnterior):
+        self.anterior = newAnterior
+        self.jit_view.anterior = self.anterior
+        self.jit_view.currentState = -1
+
     def setPosterior(self, newPosterior):
         self.posterior = newPosterior
         self.jit_view.posterior = self.posterior
@@ -152,10 +157,6 @@ class jit_Individual(object):
         if self.check_and_set_state(3, cutoff):
             self.setGenotypesFromPeelingData(True, True, False, cutoff)
 
-
-    def setAnterior(self, newAnterior):
-        self.anterior = newAnterior
-        self.currentState = -1
 
 
 
