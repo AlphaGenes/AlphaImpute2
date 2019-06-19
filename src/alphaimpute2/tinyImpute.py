@@ -2,11 +2,9 @@ from .tinyhouse import Pedigree
 from .tinyhouse import InputOutput
 from .tinyhouse import ProbMath
 
-from .Imputation import Imputation
-from .Imputation import PedigreeImputation
 from .Imputation import ProbPhasing
 from .Imputation import HeuristicBWImpute
-from .Imputation import Heuristic_Peeling_Careful
+from .Imputation import Heuristic_Peeling
 from .Imputation import ImputationIndividual
 
 import datetime
@@ -32,24 +30,6 @@ except:
 def setupImputation(pedigree):
     for ind in pedigree :
         ind.setupIndividual()
-        Imputation.fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
-        Imputation.fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
-        Imputation.ind_fillInGenotypesFromPhase(ind)
-        # if ind.isFounder() :
-        #     Imputation.ind_randomlyPhaseMidpoint(ind)
-
-def imputeBeforePhasing(pedigree):
-    # Idea here: Use pedigree information to pre-phase individuals before phasing them.
-    # We should probably use both parents + ancestors to do the imputation, and consider peeling up as well as peeling down.
-    # Right now, we just perform peeling.
-
-    # PedigreeImputation.performPeeling(pedigree, fill = .99, ancestors = False)
-
-    for ind in pedigree:
-        Heuristic_Peeling.setSegregation(ind)
-        Heuristic_Peeling.heuristicPeelDown(ind)
-
-
 
 def phaseHD(pedigree):
 
@@ -71,11 +51,6 @@ def imputeGeneration(gen, pedigree, args, genNum):
     
     #Peel down to generation
 
-    PedigreeImputation.performPeeling(gen, fill = .99, ancestors = True, peelUp=True)
-    PedigreeImputation.performPeeling(gen, fill = .9, ancestors = True)
-    PedigreeImputation.performPeeling(gen, fill = .8, ancestors = True)
-    PedigreeImputation.performPeeling(gen, fill = .5)
-    # if genNum == 0:
     if True:
         runLDPhasing(indList = gen, pedigree = pedigree)
 
@@ -149,12 +124,12 @@ def getArgs() :
     InputOutput.addInputFileParser(parser)
     
     core_impute_parser = parser.add_argument_group("Impute options")
-    core_impute_parser.add_argument('-no_impute', action='store_true', required=False, help='Flag to read in the files but not perform imputation.')
-    core_impute_parser.add_argument('-no_phase', action='store_true', required=False, help='Flag to not do HD phasing initially.')
+    # core_impute_parser.add_argument('-no_impute', action='store_true', required=False, help='Flag to read in the files but not perform imputation.')
+    # core_impute_parser.add_argument('-no_phase', action='store_true', required=False, help='Flag to not do HD phasing initially.')
     core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
 
-    return InputOutput.parseArgs("AlphaFamImpute", parser)
+    return InputOutput.parseArgs("AlphaImpute", parser)
 
 
 
@@ -167,39 +142,38 @@ def main():
     args = getArgs()
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
     InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
+
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    startTime = datetime.datetime.now()
-    Heuristic_Peeling_Careful.runHeuristicPeeling(pedigree, args)
-    print("Peeling", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+    Heuristic_Peeling.runHeuristicPeeling(pedigree, args)
 
-    if False:
-        # Perform initial imputation + phasing before sending it to the phasing program to get phased.
-        # The imputeBeforePhasing just runs a peel-down, with ancestors included.        
-        print("Performing initial pedigree imputation")
-        imputeBeforePhasing(pedigree)
-        print("Initial pedigree imputation finished.", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+    # if False:
+    #     # Perform initial imputation + phasing before sending it to the phasing program to get phased.
+    #     # The imputeBeforePhasing just runs a peel-down, with ancestors included.        
+    #     print("Performing initial pedigree imputation")
+    #     imputeBeforePhasing(pedigree)
+    #     print("Initial pedigree imputation finished.", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
         
-        # Phasing
-        print("HD Phasing started.")
-        if not args.no_phase:
-            phaseHD(pedigree)
-        print("HD Phasing", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+    #     # Phasing
+    #     print("HD Phasing started.")
+    #     if not args.no_phase:
+    #         phaseHD(pedigree)
+    #     print("HD Phasing", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
-        # Imputation.
-        for genNum, gen in enumerate(pedigree.generations):
-            # This runs a mix of pedigree based and population based imputation algorithms to impute each generation based on phased haplotypes.
-            print("Generation:",  genNum)
-            imputeGeneration(gen, pedigree, args, genNum)
-            print("Generation ", genNum, datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+    #     # Imputation.
+    #     for genNum, gen in enumerate(pedigree.generations):
+    #         # This runs a mix of pedigree based and population based imputation algorithms to impute each generation based on phased haplotypes.
+    #         print("Generation:",  genNum)
+    #         imputeGeneration(gen, pedigree, args, genNum)
+    #         print("Generation ", genNum, datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
     #Write out.
     if args.binaryoutput :
         InputOutput.writeOutGenotypesPlink(pedigree, args.out)
     else:
         pedigree.writeGenotypes(args.out + ".genotypes")
-        pedigree.writePhase(args.out + ".phase")
+        # pedigree.writePhase(args.out + ".phase")
     print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
 
