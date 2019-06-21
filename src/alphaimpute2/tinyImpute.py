@@ -6,6 +6,10 @@ from .Imputation import ProbPhasing
 from .Imputation import HeuristicBWImpute
 from .Imputation import Heuristic_Peeling
 from .Imputation import ImputationIndividual
+from .Imputation import Imputation
+
+from .Imputation import FamilyParentPhasing
+
 
 import datetime
 import argparse
@@ -30,6 +34,7 @@ except:
 def setupImputation(pedigree):
     for ind in pedigree :
         ind.setupIndividual()
+        Imputation.ind_align(ind)
 
 def phaseHD(pedigree):
 
@@ -124,10 +129,13 @@ def getArgs() :
     InputOutput.addInputFileParser(parser)
     
     core_impute_parser = parser.add_argument_group("Impute options")
-    # core_impute_parser.add_argument('-no_impute', action='store_true', required=False, help='Flag to read in the files but not perform imputation.')
-    # core_impute_parser.add_argument('-no_phase', action='store_true', required=False, help='Flag to not do HD phasing initially.')
     core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
+   
+
+
+    core_impute_parser.add_argument('-cutoff',default=.9, required=False, type=float, help='Genotype calling threshold.')
+    core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -146,7 +154,10 @@ def main():
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    Heuristic_Peeling.runHeuristicPeeling(pedigree, args)
+    # Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .9)
+
+
+    FamilyParentPhasing.phaseFounders(pedigree)
 
     # if False:
     #     # Perform initial imputation + phasing before sending it to the phasing program to get phased.

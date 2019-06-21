@@ -7,7 +7,9 @@ def ind_fillInGenotypesFromPhase(ind):
     fillInGenotypesFromPhase(ind.genotypes, ind.haplotypes[0], ind.haplotypes[1])
 
 def ind_align(ind):
-    #Note: We never directly set genotypes so no need to go from genotypes -> phase
+    fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
+    fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
+
     fillInGenotypesFromPhase(ind.genotypes, ind.haplotypes[0], ind.haplotypes[1])
     fillInCompPhase(ind.haplotypes[0], ind.genotypes, ind.haplotypes[1])
     fillInCompPhase(ind.haplotypes[1], ind.genotypes, ind.haplotypes[0])
