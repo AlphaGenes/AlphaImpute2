@@ -143,15 +143,18 @@ Memory
 The memory storage takes place inside `jit_Peeling_Individual` in `ImputationIndividual`. The main costs are:
 
 3 4xnLoci float32s:
--anterior
+
+- anterior
 - penetrance
 - genotypeProbabilities
 
 If the individual is a parent there are an additional 2 4xnloci float32s:
+
 - posterior
 - newPosterior
 
 1 2xnLoci float32
+
 - segregation
 
 Potentially there are some gains to be made here.
