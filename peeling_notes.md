@@ -28,22 +28,78 @@ In order to calculate a lot of these quantities we'll use information about how 
 For some transmission cases it's pretty simple, i.e. imagine the sire is `AA`, and the dam is `aa`. We know that both parents transmit at least one copy of each allele. These means that the sire will transmit a copy of `A` and the dam will transmit a copy of `a`. The resulting offspring will be `Aa`, where the `A` comes from the sire, and the `a` comes from the dam.
 
 For other cases it may be more complicated. If the sire is `aA`, and we do not know which haplotype the child inherits at which loci, then there is a 50% chance that the child will inherit an `a` and a 50% chance they inherit a `A`. If the sire is `aA` and the dam is `AA` then the genotype probabilities of the offspring will be:
+```
 p(aa): 0
 p(aA): .5
 p(Aa): 0
 p(AA): .5
-
+```
 However we may know which haplotype the individual inherits. If the segregation of the individual is `mm` (i.e. inherits the maternal haplotype from both parents ) then the resulting genotype probabilities are:
-
+```
 p(aa): 0
 p(aA): 0
 p(Aa): 0
 p(AA): 1
-
+```
 Segregation probabilities are really helpfull for determining which alleles an individual inherits from their parents and are used for both the peel down (anterior) and peel up (posterior) steps.
 
 Penetrance, Anterior, and Posterior
 ==
 
-This section wi
+This section will outline how each of these terms is calculated.
+
+Penetrance
+--
+
+This gives the genotype probability of an individual given their own genotype. There are two ways to calculate this term.
+
+1. There is a helper function, `tinyhouse.ProbMath.getGenotypeProbabilities_ind`, that is probably what should be used. This has the advantage of being able to take advantage of sequence data.
+2. What is currently done is we use `ind.peeling_view.setValueFromGenotypes(ind.peeling_view.penetrance)`. This second function takes an individual's current genotype and haplotypes at sets their genotype probabiliites from those values.
+
+Anterior
+--
+
+The anterior term is calculated differently for the founders and non founders.
+
+For the founders we use the minor allele frequency in the population to set the anterior terms. To do this we use
+
+```pedigree.setMaf()
+founder_anterior = ProbMath.getGenotypesFromMaf(pedigree.maf)
+founder_anterior = founder_anterior*(1-0.1) + 0.1/4 # Add an additional ~10% noise to prevent fixing of genotypes with low maf.
+for ind in pedigree:
+    if ind.isFounder():
+        ind.peeling_view.setAnterior(founder_anterior.copy())
+```
+
+For non-founders we calculate the anterior value based on the genotypes of their parents. To do this we calculate the probability that the inherit an A allele from their sire (based on the genotype probabilities for their sire). If their segregation value is missing this is,
+```
+P(a|sire) = .5 p(aA) + .5 p(Aa) + 1 p(AA).
+```
+If their segregation value is known, this turns into
+```
+P(a|sire) = seg p(aA) + (1-seg) p(Aa) + 1 p(AA).
+```
+We then can get genotype probabilities via, e.g.:
+```
+p(aA) = p(a|Sire) p(A|dam)
+```
+
+
+Posterior
+--
+
+Segregation
+==
+
+Some general code comments
+==
+
+Parallel
+--
+
+Speed
+--
+
+Memory
+--
 
