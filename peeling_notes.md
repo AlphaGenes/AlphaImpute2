@@ -66,7 +66,7 @@ For the founders we use the minor allele frequency in the population to set the 
 ```
 pedigree.setMaf()
 founder_anterior = ProbMath.getGenotypesFromMaf(pedigree.maf)
-founder_anterior = founder_anterior*(1-0.1) + 0.1/4 
+founder_anterior = founder_anterior*(1-0.1) + 0.1/4
 for ind in pedigree:
     if ind.isFounder():
         ind.peeling_view.setAnterior(founder_anterior.copy())
@@ -90,18 +90,81 @@ p(aA) = p(a|Sire) p(A|dam)
 Posterior
 --
 
+The posterior terms are a bit tricky. The basic idea is that for each full-sib family (i.e. each sire-dam mate pair) we use the children to estimate their joint genotype probabilities. We use the called genotypes (and segregation) values to do this. This means that at each loci, each child will produce a 4x4 matrix of values that represent the joint probabilities for the phased genotypes of their sire and dam. We assume that alleles are inherited independently, i.e.
+```
+p(sire, dam|children) = \prod(p(sire, dam|child))
+```
+We then collapse the scores for each parent using the genotype probabiliites of the other parent, i.e.
+```
+p(sire|children) = \sum(p(sire, dam|children)p(dam)).
+```
+Because each family assorts independently we calculate the posterior terms seperately for each parent, and then collapse the values together to get the value for the parent.
+
+
 Segregation
 ==
+
+Estimating the segregation values is a two step process. First we determine which haplotype the individual inherited from at each loci, then we smooth the estimates to get the actual haplotype inheritance.
+
+- For the first step we look at the child's genotypes/haplotypes. In each case we determine which of the segregation will produce the child's genotype and assign an `1-e` term to those that do and an `1-e` term to those that do not. We ignore loci where the child's haplotype is missing, or where one of the parent's haplotypes is missing. Generally we rely on haplotypes, however if the child is heterozygous, this can still provide some information particularly if one of the parents is phased and heterozygous.
+- We used called genotypes in this step. This is because an individual's genotypes are not statistically independent from each other. This can mean that genotype probabilities at each loci can give eroneous results since their probabilities are not independent.
+- For the second step we use a standard forward-backward algorithm, lifted almost directly from AlphaPeel. The transmission rate determines how much uncertainty is added at each transmission step.
 
 Some general code comments
 ==
 
+General Math
+--
+
+**Exponential + normalization:** This occurs when collapsing the posterior values together. When taking the exponential of very small quantities it is important to make sure that you do not run into overflow/underflow issues. In order to get around this, we can subtract the maximum value of the array from each of the elements, and then take the exponential of the resulting matrix. This means that the greatest value will get set to `exp(0)=1`. Very small values will get set to zero, but this indactes that they should have close to zero weight anyways, so it's probably okay.
+
 Parallel
 --
+
+In order to parallelize the code we've split out each of the anterior and posterior steps into calculating the terms for individual families. We split out the families into individual generations. The key thing when doing this is that we don't want to be setting values for the same individual in mulitple threads. Here is an analysis split out between different values.
+
+- **Sire and dam genotypes** (no parallel): We set the genotypes of the sires and dams in a non-parallele mode. Individual sire and dams may be used in multiple families within the same generation.
+- **Child genotypes** (parallel): We set the genotypes of the children in parallel. This is safe because we are operating on a family basis, and a child is only the offspring of a single family (i.e. the family that has their sire as sire, and dam as dam). We also collapse the posterior term for the individual in this step.-
+- **Child segregation** (parallel): Individual child segregation values are re-estimated in parallel. These depend only on the genotypes of the child and parents which are fixed.
+- **Child anterior term** (parallel): The anterior terms are estimate in parallel. These depend only on the parent genotype probabilties which are fixed in the context of a generation.
+-**Parent posterior**(parallel, but outside of numba): We add the family posterior elements to each of the parents in parallel but outside of numba. I think this should be safe because the code is run in multi-threaded mode, and so the GIL should make these operations threadsafe.
 
 Speed
 --
 
+- Time seems to be split pretty evenly between the anterior and posterior computation terms.
+- On the whole, the posterior term seems to dominate compared to the anterior term (usually by a factor of ~2).
+- Estimating the segregation seems to be fairly cheap.
+- There do not seem to be any obvious speed gains.
+
 Memory
 --
+
+The memory storage takes place inside `jit_Peeling_Individual` in `ImputationIndividual`. The main costs are:
+
+3 4xnLoci float32s:
+-anterior
+- penetrance
+- genotypeProbabilities
+
+If the individual is a parent there are an additional 2 4xnloci float32s:
+- posterior
+- newPosterior
+
+1 2xnLoci float32
+- segregation
+
+Potentially there are some gains to be made here.
+- all of the 4xnLoci float32s could potentially be stored as int8s with some conversion from int8->float32. We don't actually need these terms to be very accurate (as long as we can still accurately call values). 4x space saving.
+- Potentially we could drop the penetrance term and re-calculate from original genotypes/haplotypes. My main concern is that I've thought about using the pentrance term as a way to store values from outside algorithms. I'm somewhat relctant to make that change before we have integration done.
+- We only ever set values to either `setGenotypesAll`, or `setGenotypesPosterior`. Potentially we could just store values for both of those terms, and have genotypeProbabilities point to one or two of those values. For the parents we'd also likely need the newPosterior term. ~2x space saving.
+- I want to wait until we get a clearer picture of how the other algorithms work before moving forward on any of these ideas.
+
+
+
+
+
+
+
+
 
