@@ -343,10 +343,41 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
     for i in range(nLoci):
         # Let's do sire side.
         # I'm going to assume we've already peeled down.
+        
+        sirehap0 = sire.haplotypes[0][i]
+        sirehap1 = sire.haplotypes[1][i]
+        damhap0 = dam.haplotypes[0][i]
+        damhap1 = dam.haplotypes[1][i]
+
+        # There's an extra edge case where both the child is heterozygous, but both the parent's haplotypes are phased.
+        if ind.haplotypes[0][i] == 9 and ind.haplotypes[0][i] == 9 and ind.genotypes[i] == 1:
+            if sirehap0 != 9 and sirehap1 != 9 and damhap0 != 9 and damhap1 != 9:
+                # I am so sorry about this. I want to think if there's a better way of doing this.
+                
+                if sirehap0 + damhap0 == 1:
+                    pointEstimates[0,i] *= 1-e
+                else:
+                    pointEstimates[0,i] *= e
+
+                if sirehap0 + damhap1 == 1:
+                    pointEstimates[1,i] *= 1-e
+                else:
+                    pointEstimates[1,i] *= e
+
+                if sirehap1 + damhap0 == 1:
+                    pointEstimates[2,i] *= 1-e
+                else:
+                    pointEstimates[2,i] *= e
+
+                if sirehap1 + damhap1 == 1:
+                    pointEstimates[3,i] *= 1-e
+                else:
+                    pointEstimates[3,i] *= e
+
+
+
         if ind.haplotypes[0][i] != 9:
             indhap = ind.haplotypes[0][i]
-            sirehap0 = sire.haplotypes[0][i]
-            sirehap1 = sire.haplotypes[1][i]
 
             # If both parental haplotypes are non-missing, and
             # not equal to each other, then this is an informative marker.
@@ -366,21 +397,19 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
 
         if ind.haplotypes[1][i] != 9:
             indhap = ind.haplotypes[1][i]
-            damhap0 = dam.haplotypes[0][i]
-            damhap1 = dam.haplotypes[1][i]
-
+    
             if damhap0 != 9 and damhap1 != 9 and damhap0 != damhap1:
 
                 if indhap == damhap0:
                     pointEstimates[0,i] *= 1-e
-                    pointEstimates[2,i] *= 1-e
                     pointEstimates[1,i] *= e
+                    pointEstimates[2,i] *= 1-e
                     pointEstimates[3,i] *= e
                 
                 if indhap == damhap1 :
                     pointEstimates[0,i] *= e
-                    pointEstimates[2,i] *= e
                     pointEstimates[1,i] *= 1-e
+                    pointEstimates[2,i] *= e
                     pointEstimates[3,i] *= 1-e
 
 @jit(nopython=True, nogil=True, locals={'e': float32, 'e2':float32, 'e1e':float32, 'e2i':float32})

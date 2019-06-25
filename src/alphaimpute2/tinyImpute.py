@@ -134,7 +134,7 @@ def getArgs() :
    
 
 
-    core_impute_parser.add_argument('-cutoff',default=.9, required=False, type=float, help='Genotype calling threshold.')
+    core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
@@ -154,10 +154,10 @@ def main():
     # Fill in haplotypes from genotypes. Fill in genotypes from phase.
     setupImputation(pedigree)
 
-    # Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .9)
+    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
 
 
-    FamilyParentPhasing.phaseFounders(pedigree)
+    # FamilyParentPhasing.phaseFounders(pedigree)
 
     # if False:
     #     # Perform initial imputation + phasing before sending it to the phasing program to get phased.
@@ -183,7 +183,22 @@ def main():
     if args.binaryoutput :
         InputOutput.writeOutGenotypesPlink(pedigree, args.out)
     else:
+        for ind in pedigree:
+            ind.peeling_view.setGenotypesAll(.1)
+
         pedigree.writeGenotypes(args.out + ".genotypes")
+
+        # for ind in pedigree:
+        #     ind.peeling_view.setGenotypesPenetrance(.1)
+        # pedigree.writeGenotypes(args.out + ".penetrance")
+
+        # for ind in pedigree:
+        #     ind.peeling_view.setGenotypesFromPeelingData(True, False, False, .1)
+
+        # pedigree.writeGenotypes(args.out + ".anterior")
+
+        # pedigree.writeSegregation(args.out + ".seg.0", 0)
+        # pedigree.writeSegregation(args.out + ".seg.1", 1)
         # pedigree.writePhase(args.out + ".phase")
     print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
