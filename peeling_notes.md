@@ -63,15 +63,17 @@ The anterior term is calculated differently for the founders and non founders.
 
 For the founders we use the minor allele frequency in the population to set the anterior terms. To do this we use
 
-```pedigree.setMaf()
+```
+pedigree.setMaf()
 founder_anterior = ProbMath.getGenotypesFromMaf(pedigree.maf)
-founder_anterior = founder_anterior*(1-0.1) + 0.1/4 # Add an additional ~10% noise to prevent fixing of genotypes with low maf.
+founder_anterior = founder_anterior*(1-0.1) + 0.1/4 
 for ind in pedigree:
     if ind.isFounder():
         ind.peeling_view.setAnterior(founder_anterior.copy())
 ```
 
 For non-founders we calculate the anterior value based on the genotypes of their parents. To do this we calculate the probability that the inherit an A allele from their sire (based on the genotype probabilities for their sire). If their segregation value is missing this is,
+
 ```
 P(a|sire) = .5 p(aA) + .5 p(Aa) + 1 p(AA).
 ```
