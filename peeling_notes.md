@@ -97,10 +97,12 @@ We assume that the posterior values for each family are independent. This lets t
 Segregation
 ==
 
-Estimating the segregation values is a two step process. First we determine which haplotype the individual inherited from at each loci, then we smooth the estimates to get the actual haplotype inheritance.
+We estimate the segregation values in a two step process. In the first step we create "point estimates" for the segregation values. In the second step we smooth the point estimates.
 
-- For the first step we look at the child's genotypes/haplotypes. In each case we determine which of the segregation will produce the child's genotype and assign an `1-e` term to those that do and an `1-e` term to those that do not. We ignore loci where the child's haplotype is missing, or where one of the parent's haplotypes is missing. Generally we rely on haplotypes, however if the child is heterozygous, this can still provide some information particularly if one of the parents is phased and heterozygous.
-- We used called genotypes in this step. This is because an individual's genotypes are not statistically independent from each other. This can mean that genotype probabilities at each loci can give eroneous results since their probabilities are not independent.
+1. In step 1 we look to see if the child's haplotype for a single parent matches one of the parent's haplotypes, but not the other.
+    a. For example, if the parent is `aA`, and the child is `aa` we will set the segregation value of `pp` and `pm` to `1-e` since that is consistent with the child inheriting the grand paternal allele (first allele) from their sire.
+    b. We also can consider the case where the child is unphased and heterozygote. In this case we see if a particular combination of parental haplotypes will produce a heterozygous offspring.
+    c. We used called genotypes in this step because an individual (and their parent's) genotypes are not statistically independent from each other at each loci. Using genotype probabilities (particularly for the parents) can produce erroneous results.
 - For the second step we use a standard forward-backward algorithm, lifted almost directly from AlphaPeel. The transmission rate determines how much uncertainty is added at each transmission step.
 
 Some general code comments
