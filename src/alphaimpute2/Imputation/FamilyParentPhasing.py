@@ -25,58 +25,59 @@ def phaseFounders(pedigree):
 
 
 def phaseIndFromOffspring(parent):
-    nLoci = len(parent.genotypes)
-    nOffspring = len(parent.offspring)
-
     
-    parent.peeling_view.setGenotypesAll(.9)
-    # I don't really want to deal with individuals. I want to deal with haplotypes instead.
-    haplotypes = np.array([getHaplotype(ind, parent) for ind in parent.offspring])
-
-    # STEP 2: Assign child positions.
-    alignments = np.full((nOffspring, nLoci), 9, dtype = np.int8) # Matrix of 0, 1, and 9
+    # Only work on heterozygous loci.
+    hetLoci = np.where(parent.genotypes == 1)[0] # This returns a tuple for some reason
+    nLoci = len(hetLoci)
     
-    parent.peeling_view.setValueFromGenotypes(parent.peeling_view.penetrance)
+    genotypeProbabilities = np.full((4, len(parent.genotypes)), 0.001, dtype = np.float32)
+
+    if nLoci > 0:
+        nOffspring = len(parent.offspring)
+
+        # I don't really want to deal with individuals. I want to deal with haplotypes instead.
+        haplotypes = np.array([getHaplotype(ind, parent) for ind in parent.offspring])
+        haplotypes = haplotypes[:, hetLoci]
+
+        # STEP 2: Assign child positions.
+        alignments = np.full((nOffspring, nLoci), 9, dtype = np.int8) # Matrix of 0, 1, and 9
+        
+        # Set up initial alignments. 
+
+        for i in range(nOffspring):
+            if haplotypes[i, 0] == 0:
+                alignments[i, 0] = 0
+            elif haplotypes[i, 0] == 1:
+                alignments[i, 0] = 1
+            else:
+                alignments[i, 0] = np.random.randint(2)
+
+        # STEP 3: Create an initial burn in sample, then do a number of passes.
+
+        nSamples = 1
+        new_genotypes = np.full((nSamples, nLoci), 1, dtype = np.int8)
+
+        # Burn in run.
+        getSample(alignments, haplotypes, True) 
+
+        forward = False
+        for i in range(nSamples):
+            new_genotypes[i, :] = getSample(alignments, haplotypes, forward= False) 
+            # print(alignments[:, 0:10].T)
 
 
-    # Set up initial alignments. 
-
-    for i in range(nOffspring):
-        if haplotypes[i, 0] == 0:
-            alignments[i, 0] = 0
-        elif haplotypes[i, 0] == 1:
-            alignments[i, 0] = 1
-        else:
-            alignments[i, 0] = np.random.randint(2)
-
-    # STEP 3: Create an initial burn in sample, then do a number of passes.
+        for i in range(nLoci):
+            for j in range(nSamples):
+                genotype = new_genotypes[j, i]
+                if genotype != -1:
+                    genotypeProbabilities[genotype + 1, hetLoci[i]] += 1
 
 
-    nSamples = 10
-    new_genotypes = np.full((nSamples, nLoci), 1, dtype = np.int8)
-
-
-    # Burn in run.
-    getSample(alignments, parent.peeling_view.genotypeProbabilities, haplotypes, True) 
-
-    forward = False
-    for i in range(nSamples):
-        new_genotypes[i, :] = getSample(alignments, parent.peeling_view.genotypeProbabilities, haplotypes, forward) 
-        forward = not forward    
-
-    genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
-
-    for i in range(nLoci):
-        for j in range(nSamples):
-            genotype = new_genotypes[j, i]
-            if genotype != -1:
-                genotypeProbabilities[genotype, i] += 1
-
-    genotypeProbabilities /= np.sum(genotypeProbabilities, axis = 0)
-    genotypeProbabilities = genotypeProbabilities * (1-.99) + .01/4
-
-    parent.peeling_view.penetrance = genotypeProbabilities
-    parent.peeling_view.setGenotypesAll(0.3)
+        genotypeProbabilities /= np.sum(genotypeProbabilities, axis = 0)
+        genotypeProbabilities = genotypeProbabilities * (1-.001) + .001/4
+    
+        print(genotypeProbabilities[:, 1:10].T)
+    return genotypeProbabilities
 
 
 def getHaplotype(ind, parent):
@@ -88,27 +89,27 @@ def getHaplotype(ind, parent):
     return None
 
 @jit(nopython=True)
-def getSample(alignments, parent_geno_probs, child_haplotypes, forward):
-    nLoci = parent_geno_probs.shape[-1]
+def getSample(alignments, haplotypes, forward):
+    nLoci = haplotypes.shape[-1]
     new_genotypes = np.full(nLoci, -1, dtype = np.int8)
     
-    scores = np.full(4, 0, dtype = np.float32)
+    scores = np.full(2, 0, dtype = np.float32)
 
 
     if forward:
         for i in range(1, nLoci):
-            new_genotypes[i] = updateGroups(alignments, i-1, i, parent_geno_probs, child_haplotypes, scores)
+            new_genotypes[i] = updateGroups(alignments, i-1, i, haplotypes, scores)
 
     else:
         for i in range(nLoci - 2, -1, -1):
-            new_genotypes[i] = updateGroups(alignments, i+1, i, parent_geno_probs, child_haplotypes, scores)
+            new_genotypes[i] = updateGroups(alignments, i+1, i, haplotypes, scores)
     
     return new_genotypes
 
 
 
 @jit(nopython=True)
-def updateGroups(alignments, currentLoci, nextLoci, parent_geno_probs, child_haplotypes, scores) :
+def updateGroups(alignments, currentLoci, nextLoci, haplotypes, scores) :
     global probs_rec
     # Check possible phasings, and correct genotyping errors.
     nOffspring, nLoci = alignments.shape
@@ -116,19 +117,34 @@ def updateGroups(alignments, currentLoci, nextLoci, parent_geno_probs, child_hap
     scores[:] = 0
     for i in range(nOffspring):
         seg = alignments[i, currentLoci]
-        hap = child_haplotypes[i, nextLoci]
-        scores += probs_rec[seg, hap, :]
+        hap = haplotypes[i, nextLoci]
+        if hap != 9:
+            scores += probs_no_rec[seg, hap, :]
 
-    scores += np.log(parent_geno_probs[:, nextLoci])
-    # Randomly sample a value
-    
     final_scores = exp_1D_norm(scores)
+    # genotype, update = callValues(scores, threshold = 0.9)
     genotype = sample(final_scores)
 
+    if genotype > 1:
+        print(genotype, final_scores)
     for i in range(nOffspring):
-        alignments[i, nextLoci] = sampleAlignment(alignments[i, currentLoci], child_haplotypes[i, nextLoci], genotype)
-
+        alignments[i, nextLoci] = sampleAlignment(alignments[i, currentLoci], haplotypes[i, nextLoci], genotype)
     return genotype
+
+@jit(nopython=True)
+def callValues(scores, threshold = 0.9):
+    score = scores[0]
+    index = 0
+    for i in range(1, len(scores)):
+        if scores[i] > score:
+            score = scores[i]
+            index = i
+
+    if score > threshold:
+        return index, True
+    else:
+        return -1, False
+
 
 @jit(nopython=True)
 def sample(scores):
@@ -142,7 +158,7 @@ def sample(scores):
 @jit(nopython=True)
 def sampleAlignment(seg, hap, genotype):
     global probs_no_rec
-    rec = 0.001
+    rec = 0.00001
 
     new_seg_0 = probs_no_rec[0, hap, genotype]
     new_seg_1 = probs_no_rec[1, hap, genotype]
@@ -187,8 +203,8 @@ def sampleAlignment(seg, hap, genotype):
 
 ########## Globals
 
-probs_no_rec = np.full((10, 10, 4), 0, dtype = np.float32)
-probs_rec = np.full((10, 10, 4), 0, dtype = np.float32)
+probs_no_rec = np.full((10, 10, 2), 0, dtype = np.float32)
+# probs_rec = np.full((10, 10, 2), 0, dtype = np.float32)
 
 def setup_probs(e = 0.01, rec = 0.001):
     global probs_rec
@@ -196,82 +212,74 @@ def setup_probs(e = 0.01, rec = 0.001):
 
     for seg in range(10):
         for hap in range(10):
-            probs_rec[seg, hap, :] = getProbs_rec(seg, hap, e, rec)
-            probs_no_rec[seg, hap, :] = getProbs_no_rec(seg, hap, e)
+            # probs_rec[seg, hap, :] = getProbs_rec(seg, hap, e, rec)
+            probs_no_rec[seg, hap, :] = getProbs_no_rec(seg, hap, e = 0.01)
 
 
 @jit(nopython=True)
 def getProbs_no_rec(seg, hap, e):
     scores = np.full(4, 0, dtype = np.float32)
     
-    if hap == 9:
-        return scores
-
     if hap == 0:
-        scores[0] = 1-e
-
         if seg == 0:
-            scores[1] = (1-e) 
-            scores[2] = e
-        if seg == 1:
-            scores[1] = e
-            scores[2] = 1-e
-        if seg == 9:
-            scores[1] = .5
-            scores[2] = .5
-        scores[3] = e
-
-    if hap == 1:
-        scores[3] = 1-e
-        if seg == 0:
-            scores[2] = (1-e) 
+            scores[0] = (1-e) 
             scores[1] = e
         if seg == 1:
-            scores[2] = e
+            scores[0] = e
             scores[1] = 1-e
         if seg == 9:
-            scores[2] = .5
+            scores[0] = .5
             scores[1] = .5
-        scores[0] = e
-
-    return np.log(scores)
-
-@jit(nopython=True)
-def getProbs_rec(seg, hap, e, rec):
-    scores = np.full(4, 0, dtype = np.float32)
-    
-    if hap == 9:
-        return scores
-
-    if hap == 0:
-        scores[0] = 1-e
-
-        if seg == 0:
-            scores[1] = (1-rec)*(1-e) + rec*e
-            scores[2] = rec*(1-e) + (1-rec)*e
-        if seg == 1:
-            scores[1] = rec*(1-e) + (1-rec)*e
-            scores[2] = (1-rec)*(1-e) + rec*e
-        if seg == 9:
-            scores[1] = .5
-            scores[2] = .5
-        scores[3] = e
 
     if hap == 1:
-        scores[3] = 1-e
-
         if seg == 0:
-            scores[2] = (1-rec)*(1-e) + rec*e
-            scores[1] = rec*(1-e) + (1-rec)*e
+            scores[0] = e
+            scores[1] = (1-e) 
         if seg == 1:
-            scores[2] = rec*(1-e) + (1-rec)*e
-            scores[1] = (1-rec)*(1-e) + rec*e
+            scores[0] = 1-e
+            scores[1] = e
         if seg == 9:
-            scores[2] = .5
+            scores[0] = .5
             scores[1] = .5
-        scores[0] = e
 
     return np.log(scores)
+
+# @jit(nopython=True)
+# def getProbs_rec(seg, hap, e, rec):
+#     scores = np.full(4, 0, dtype = np.float32)
+    
+#     if hap == 9:
+#         return scores
+
+#     if hap == 0:
+#         scores[0] = 1-e
+
+#         if seg == 0:
+#             scores[1] = (1-rec)*(1-e) + rec*e
+#             scores[2] = rec*(1-e) + (1-rec)*e
+#         if seg == 1:
+#             scores[1] = rec*(1-e) + (1-rec)*e
+#             scores[2] = (1-rec)*(1-e) + rec*e
+#         if seg == 9:
+#             scores[1] = .5
+#             scores[2] = .5
+#         scores[3] = e
+
+#     if hap == 1:
+#         scores[3] = 1-e
+
+#         if seg == 0:
+#             scores[2] = (1-rec)*(1-e) + rec*e
+#             scores[1] = rec*(1-e) + (1-rec)*e
+#         if seg == 1:
+#             scores[2] = rec*(1-e) + (1-rec)*e
+#             scores[1] = (1-rec)*(1-e) + rec*e
+#         if seg == 9:
+#             scores[2] = .5
+#             scores[1] = .5
+#         scores[0] = e
+
+#     return np.log(scores)
 
 ########## Utility
 
@@ -279,16 +287,17 @@ def getProbs_rec(seg, hap, e, rec):
 def exp_1D_norm(mat):
     # Matrix is 4: Output is to take the exponential of the matrix and normalize each locus. We need to make sure that there are not any overflow values.
     # Note, this changes the matrix in place by a constant.
+    
     maxVal = 1 # Log of anything between 0-1 will be less than 0. Using 1 as a default.
-    for a in range(4):
+    for a in range(len(mat)):
         if mat[a] > maxVal or maxVal == 1:
             maxVal = mat[a]
-    for a in range(4):
+    for a in range(len(mat)):
         mat[a] -= maxVal
 
     # Should flag for better numba-ness.
-    tmp = np.full(4, 0, dtype = np.float32)
-    for a in range(4):
+    tmp = np.full(len(mat), 0, dtype = np.float32)
+    for a in range(len(mat)):
         tmp[a] = np.exp(mat[a])
 
     norm_1D(tmp)

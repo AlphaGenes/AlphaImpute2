@@ -114,7 +114,9 @@ class jit_Peeling_Individual(object):
 
     def setAnterior(self, newAnterior):
         self.anterior = newAnterior
-        self.currentState = -1
+        if self.currentState == 0 or self.currentState == 3:
+            # i.e. if current state uses the anterior estimate.
+            self.currentState = -1
 
     def setPosterior(self):
         if self.newPosterior is not None:

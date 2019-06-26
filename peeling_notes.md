@@ -160,9 +160,10 @@ If the individual is a parent there are an additional 2 4xnloci float32s:
 Potentially there are some gains to be made here.
 - all of the 4xnLoci float32s could potentially be stored as int8s with some conversion from int8->float32. We don't actually need these terms to be very accurate (as long as we can still accurately call values). 4x space saving.
 - Potentially we could drop the penetrance term and re-calculate from original genotypes/haplotypes. My main concern is that I've thought about using the pentrance term as a way to store values from outside algorithms. I'm somewhat relctant to make that change before we have integration done.
+- Could just store the anterior values as 2xnLoci (i.e. for each haplotype seperately).
 - We only ever set values to either `setGenotypesAll`, or `setGenotypesPosterior`. Potentially we could just store values for both of those terms, and have genotypeProbabilities point to one or two of those values. For the parents we'd also likely need the newPosterior term. ~2x space saving.
 - I want to wait until we get a clearer picture of how the other algorithms work before moving forward on any of these ideas.
-
+- We can also remove the memory costs when switching over to a different part of the algorithm by removing the `jit_Peeling_Individual`s.
 
 
 

@@ -187,6 +187,7 @@ def main():
             ind.peeling_view.setGenotypesAll(.1)
 
         pedigree.writeGenotypes(args.out + ".genotypes")
+        pedigree.writePhase(args.out + ".phase")
 
         # for ind in pedigree:
         #     ind.peeling_view.setGenotypesPenetrance(.1)
@@ -199,7 +200,6 @@ def main():
 
         # pedigree.writeSegregation(args.out + ".seg.0", 0)
         # pedigree.writeSegregation(args.out + ".seg.1", 1)
-        # pedigree.writePhase(args.out + ".phase")
     print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
 

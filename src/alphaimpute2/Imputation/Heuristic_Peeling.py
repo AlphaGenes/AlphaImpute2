@@ -7,6 +7,8 @@ from itertools import repeat
 import datetime
 
 from . import Imputation
+from . import FamilyParentPhasing
+
 from ..tinyhouse import ProbMath
 
 
@@ -39,7 +41,7 @@ except:
 
 
 @profile
-def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
+def runHeuristicPeeling(pedigree, args, phase_founders = False, final_cutoff = .3):
 
     peeling_start_time = datetime.datetime.now()
     
@@ -77,6 +79,10 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
         pedigreePeelUp(pedigree, args, cutoffs[cycle])
         print("Peel up", (datetime.datetime.now() - startTime).total_seconds())
 
+        # if cycle == 2:
+        #     print("Phasing founders from offspring")
+        #     phaseFounders(pedigree)
+
     print("Core Imputation", (datetime.datetime.now() - core_start_time).total_seconds())
 
     # Set to best-guess genotypes.
@@ -85,6 +91,18 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
 
     print("Total Peeling", (datetime.datetime.now() - peeling_start_time).total_seconds())
 
+# def phaseFounders(pedigree):
+
+#     # Some hacky values to start off with. But generally want a lot of certainty.
+#     for ind in pedigree:
+#         ind.peeling_view.setGenotypesAll(.9)
+
+#     for ind in pedigree:
+#         if ind.isFounder():
+#             if len(ind.offspring) >= 5:
+#                 genoProbs = FamilyParentPhasing.phaseIndFromOffspring(ind)
+#                 ind.peeling_view.penetrance = genoProbs * ind.peeling_view.penetrance
+#                 ind.peeling_view.currentState = -1
 
 @profile
 def pedigreePeelDown(pedigree, args, cutoff):
