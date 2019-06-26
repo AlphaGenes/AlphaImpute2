@@ -95,8 +95,7 @@ p(g_sire|children) = \sum(p(g_sire, g_dam|children)p(g_dam)).
 We assume that the posterior values for each family are independent. This lets them calculate them seperately for each family group, and then sum them together to produce the final called genotype. Because some individuals have a large number of offspring, we calculate the joint genotypes on a log scale and then convert back in the marginalization step.
 
 Segregation
-==
-
+--
 We estimate the segregation values in a two step process. In the first step we create "point estimates" for the segregation values. In the second step we smooth the point estimates.
 
 1. In step 1 we look to see if the child's haplotype for a single parent matches one of the parent's haplotypes, but not the other.
@@ -104,14 +103,16 @@ We estimate the segregation values in a two step process. In the first step we c
     * We also can consider the case where the child is unphased and heterozygote. In this case we see if a particular combination of parental haplotypes will produce a heterozygous offspring.
     * We used called genotypes in this step because an individual (and their parent's) genotypes are not statistically independent from each other at each loci. Using genotype probabilities (particularly for the parents) can produce erroneous results.
 2. For the second step we use a standard forward-backward algorithm, lifted almost directly from AlphaPeel. The transmission rate determines how much uncertainty when moving from one loci to the next.
+    * Add some math here?
 
-Some general code comments
+
+Specific code comments
 ==
 
 General Math
 --
 
-**Exponential + normalization:** This occurs when collapsing the posterior values together. When taking the exponential of very small quantities it is important to make sure that you do not run into overflow/underflow issues. In order to get around this, we can subtract the maximum value of the array from each of the elements, and then take the exponential of the resulting matrix. This means that the greatest value will get set to `exp(0)=1`. Very small values will get set to zero, but this indactes that they should have close to zero weight anyways, so it's probably okay.
+**Exponential + normalization:** When working with the posterior values it is important to handle overflow/underflow appropriately. We do this by treating most of the posterior values as if they exist on a log scale. To convert back from a log scale to a normal scale requires an exponential operation. Most of the cases where we do this, we also need to normalize the resulting values so that they sum to one. In order to prevent issues with underflows, we first calculate the maximum value in the slice of the array that we are dealing with. We then subtract the maximum value and take the expontential. This means that the greatest value in the array will be set to `exp(0)=1`. Very small values may be set to zero, but this just indicates that they have vanishingly small probability.
 
 Parallel
 --
