@@ -5,63 +5,52 @@ Hybrid peeling for fast and accurate calling, phasing and imputation with sequen
 Peeling basics
 =====
 
-Fundementally the idea behind multi-locus peeling is to calculate an individual's genotype as a product of the genotypes of their parents and offspring. The tricky thing is to prevent feedback loops while doing this. I.e. imagine an child was imputed based on the genotypes of the parents, we do not want to use the imputed genotypes of the child to be used when imputing their parents. This will cause us to be overly certain about the genotypes of the parents and may lead to errors.
+The idea behind multi-locus iterative peeling is to estimate an individual's genotype based on information from their own SNP data, the genotypes of their parents, and the genotypes of their offspring. This can be hard because there are feedback loops that need to be avoided when doing this. For example, if a child's genotypes were imputed based on the genotypes of their parents, we would not want to use those genotypes to re-impute the parent. Instead we would want to use only the "new" data from the genotype's of the child (and potentially their offspring).
 
-For all of these peeling quantities, we want to generate genotype probabilities over the four, phased genotypes, i.e.
-genotype probabilities: [p(aa), p(aA), p(Aa), p(AA)].
-In all cases the first allele is the allele the individual inherited from their sire, and the second is inherited from their dam.
+To keep these quantities seperate, we explicitly calculate and store three different values. These are,
 
-There are three quantities that we calculate.
+- anterior: genotype probabilities for the individual based on their parent's genotypes.
+- penetrance: genotype probabilities for an individual based on their own genotypes.
+- posterior: genotype probabilites for an individual based on the offspring's genotypes. For the penetrance term you will often need the mate's genotypes as well.
 
-anterior: genotype probabilities for the individual based on their parent's genotypes.
-penetrance: genotype probabilities for an individual based on their own genotypes.
-posterior: genotype probabilites for an individual based on the offspring's genotypes. For the penetrance term you will often need the mate's genotypes as well.
+For each of these values we store genotype probabilities over the four, phased genotype states, i.e. aa, aA, Aa, AA. In all cases the first allele is the allele inherited from the sire, and the second is the allele that was inherited from the dam.
 
-In order to help us calculate these quantities we will also calculate a "segregation probability". This value gives the probility that the child inherited which haplotype from which parent at which loci. In our code the ordering is given by:
-```pp, pm, mp, mm```
-Note: These orderings are helpfully given in Heuristic_Peeling.def smoothPointSeg.
+One of the key things about imputation is that individual's inherit their chromosomes from their parents in large blocks. If we knew which blocks an individual inherited, we could use that information to help us determine what alleles the individual carried, and also to determine which alleles their parents carried. For each individual, we estimate these values using a "segregation probability". We code segregation probabilities in two forms, either as the joint probability for both the paternal and maternal segregation (given by four values, ordered  `pp, pm, mp, mm` where the first value is for the sire, and an "m" stands for the parent's maternal haplotype), or as the probability for either the sire or the dam (a pair of single values giving the probability that the individual inherits the maternal haplotype, i.e. a seg=1 means that the individual inherits the maternal haplotype for that parent).
 
-Where the first value is for the sire, the second for the dam. An "m" stands for the grandmaternal haplotype, and a "p" stands for the grand paternal haplotype. There will be a more explicit example in a few paragraphs.
+In a lot of places, we will rely pretty heavily on calculating "inheritance" probabilities. These give the probability that a child inherits an allele based on the genotypes of their parents. For some cases this is simple, e.g., if the sire is  `AA`, and the dam is `aa` then the child will be `Aa`; we know that both parents will transmit a single allele and so the sire will  transmit a copy of `A` and the dam will transmit a copy of `a` so the resulting offspring will be  `Aa`.
 
-In order to calculate a lot of these quantities we'll use information about how loci are transmitted between an individual and their offspring. Some biology will be useful here. At each loci, an individual will generally have two alleles. These alleles will be on one of two copies of an individual chromosomes. We will call these copies "haplotypes". What we care about is given a parent's haplotype, what is the probability of the offspring's haplotype?
-
-For some transmission cases it's pretty simple, i.e. imagine the sire is `AA`, and the dam is `aa`. We know that both parents transmit at least one copy of each allele. These means that the sire will transmit a copy of `A` and the dam will transmit a copy of `a`. The resulting offspring will be `Aa`, where the `A` comes from the sire, and the `a` comes from the dam.
-
-For other cases it may be more complicated. If the sire is `aA`, and we do not know which haplotype the child inherits at which loci, then there is a 50% chance that the child will inherit an `a` and a 50% chance they inherit a `A`. If the sire is `aA` and the dam is `AA` then the genotype probabilities of the offspring will be:
+Other cases may be more stochastic. If the sire is heterozygous, `aA`, and the segregation is unknown, then there will be a 50% probability that the child will inherit an `a` and a 50% probability they inherit a `A`. If the sire is `aA` and the dam is `AA` then the genotype probabilities of the offspring will be:
 ```
 p(aa): 0
 p(aA): .5
 p(Aa): 0
 p(AA): .5
 ```
-However we may know which haplotype the individual inherits. If the segregation of the individual is `mm` (i.e. inherits the maternal haplotype from both parents ) then the resulting genotype probabilities are:
+However we may know which haplotype the individual inherits. If the segregation of the individual is `mm` (i.e. inherits the maternal haplotype from both parents ) then the resulting genotype probabilities for an  `aA` sire and a  `AA` dam are:
 ```
 p(aa): 0
 p(aA): 0
 p(Aa): 0
 p(AA): 1
 ```
-Segregation probabilities are really helpfull for determining which alleles an individual inherits from their parents and are used for both the peel down (anterior) and peel up (posterior) steps.
-
-Penetrance, Anterior, and Posterior
-==
-
-This section will outline how each of these terms is calculated.
+Segregation probabilities are really helpfull for determining which alleles an individual inherits from their parents and are used for both the peel down (anterior) and peel up (posterior) steps. The following sections outline how the Penetrance, Anterior, Posterior, and Segregation terms are calculated.
 
 Penetrance
 --
 
-This gives the genotype probability of an individual given their own genotype. There are two ways to calculate this term.
+The penetrance term gives the probability of each of the four phased genotypes based on the direct information we have about an individual's genotype. There are two ways to calculate this term:
 
-1. There is a helper function, `tinyhouse.ProbMath.getGenotypeProbabilities_ind`, that is probably what should be used. This has the advantage of being able to take advantage of sequence data.
-2. What is currently done is we use `ind.peeling_view.setValueFromGenotypes(ind.peeling_view.penetrance)`. This second function takes an individual's current genotype and haplotypes at sets their genotype probabiliites from those values.
+1. Via a helper function  `tinyhouse.ProbMath.getGenotypeProbabilities_ind`, which is what AlphaPeel, AlphaFamImpute, AlphaAssign use, and takes into account sequene data.
+2. Or via a somewhat hacky one line command,  `ind.peeling_view.setValueFromGenotypes(ind.peeling_view.penetrance)`. which is what currently is used.
+
+The basic idea is that we want to take a genotype and turn it into genotype probabilities. If the individual is genotyped as a "0" we want to set `p(aa)=1`. If the individual is genotyped"1", we want `p(aA) = p(Aa) = .5`. If the individual is genotyped as a "2" we want to set `p(AA) = 1`. The difference between the heterozygous and homozygous states is that with the heterozygous state there are two possible phasings that will produce the same genotype. In all of the cases we also want to add a small amount (roughly 1%) of noise to the estimate to allow for genotyping errors.
 
 Anterior
 --
 
 The anterior term is calculated differently for the founders and non founders.
 
-For the founders we use the minor allele frequency in the population to set the anterior terms. To do this we use
+The anterior term for founders in the population (individuals without any parents) are set using the population minor allele frequency. To set the term, we use:
 
 ```
 pedigree.setMaf()
@@ -72,34 +61,38 @@ for ind in pedigree:
         ind.peeling_view.setAnterior(founder_anterior.copy())
 ```
 
-For non-founders we calculate the anterior value based on the genotypes of their parents. To do this we calculate the probability that the inherit an A allele from their sire (based on the genotype probabilities for their sire). If their segregation value is missing this is,
+For non-founders the anterior value is based on the genotypes of their parents. The probability that the inherit an A allele from their sire if their segregation is unknown is
 
 ```
-P(a|sire) = .5 p(aA) + .5 p(Aa) + 1 p(AA).
+P(a|sire) = .5 p(aA) + .5 p(Aa) + 1 p(AA),
 ```
-If their segregation value is known, this turns into
+where `p(aA)` relates to the genotype probabilities of their sire. If the segregation value is known, this is instead:
 ```
 P(a|sire) = seg p(aA) + (1-seg) p(Aa) + 1 p(AA).
 ```
-We then can get genotype probabilities via, e.g.:
+We can generate genotype probabilities for the four phased genotype as the product of the allele probabilities for each parent:
 ```
-p(aA) = p(a|Sire) p(A|dam)
+p(aA) = p(a|Sire) p(A|dam).
 ```
 
 
 Posterior
 --
 
-The posterior terms are a bit tricky. The basic idea is that for each full-sib family (i.e. each sire-dam mate pair) we use the children to estimate their joint genotype probabilities. We use the called genotypes (and segregation) values to do this. This means that at each loci, each child will produce a 4x4 matrix of values that represent the joint probabilities for the phased genotypes of their sire and dam. We assume that alleles are inherited independently, i.e.
-```
-p(sire, dam|children) = \prod(p(sire, dam|child))
-```
-We then collapse the scores for each parent using the genotype probabiliites of the other parent, i.e.
-```
-p(sire|children) = \sum(p(sire, dam|children)p(dam)).
-```
-Because each family assorts independently we calculate the posterior terms seperately for each parent, and then collapse the values together to get the value for the parent.
+The posterior term is a bit trickeir than the anterior term. The idea is that for each full-sub family (i.e. each sire-dam mate pair) we will use their children to estimate their genotype  probabilities. To do this, we construct the join probabilities of their parent's genotypes, a 4x4 matrix of values. We then calculate the posterior estimate for a single parent by marginalizing the joint genotype probabilities by the genotypes of the other parents.
 
+The joint genotypes are estimated by
+```
+p(g_sire, g_dam|children) = \prod(p(g_sire, g_dam|child)).
+```
+Simulation results using AlphaPeel have suggested that accuracy may be increased by using the called genotype probabilities. Because of this we call the indivdiual's genotypes, haplotypes, and segregation values. This has the added benifit of allowing us to use a look-up table to produce the joint genotype probabilities at a given locus.
+
+We then marginalize the genotypes for each parent by,
+```
+p(g_sire|children) = \sum(p(g_sire, g_dam|children)p(g_dam)).
+```
+
+We assume that the posterior values for each family are independent. This lets them calculate them seperately for each family group, and then sum them together to produce the final called genotype. Because some individuals have a large number of offspring, we calculate the joint genotypes on a log scale and then convert back in the marginalization step.
 
 Segregation
 ==
