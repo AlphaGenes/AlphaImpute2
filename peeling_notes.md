@@ -100,9 +100,9 @@ Segregation
 We estimate the segregation values in a two step process. In the first step we create "point estimates" for the segregation values. In the second step we smooth the point estimates.
 
 1. In step 1 we look to see if the child's haplotype for a single parent matches one of the parent's haplotypes, but not the other.
-    a. For example, if the parent is `aA`, and the child is `aa` we will set the segregation value of `pp` and `pm` to `1-e` since that is consistent with the child inheriting the grand paternal allele (first allele) from their sire.
-    b. We also can consider the case where the child is unphased and heterozygote. In this case we see if a particular combination of parental haplotypes will produce a heterozygous offspring.
-    c. We used called genotypes in this step because an individual (and their parent's) genotypes are not statistically independent from each other at each loci. Using genotype probabilities (particularly for the parents) can produce erroneous results.
+    * For example, if the parent is `aA`, and the child is `aa` we will set the segregation value of `pp` and `pm` to `1-e` since that is consistent with the child inheriting the grand paternal allele (first allele) from their sire.
+    * We also can consider the case where the child is unphased and heterozygote. In this case we see if a particular combination of parental haplotypes will produce a heterozygous offspring.
+    * We used called genotypes in this step because an individual (and their parent's) genotypes are not statistically independent from each other at each loci. Using genotype probabilities (particularly for the parents) can produce erroneous results.
 - For the second step we use a standard forward-backward algorithm, lifted almost directly from AlphaPeel. The transmission rate determines how much uncertainty is added at each transmission step.
 
 Some general code comments
