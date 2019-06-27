@@ -1,3 +1,6 @@
+Overview
+==
+
 Here are some notes about how the heuristic peeling algorithm works. For more technical details it may be worth reading:
 
 Hybrid peeling for fast and accurate calling, phasing and imputation with sequence data of any coverage in pedigrees, Whalen, A., R. Ros-Freixedes, D. L. Wilson, G. Gorjanc, J.M. Hickey, Genetics Selection Evolution
@@ -15,9 +18,13 @@ To keep these quantities separate, we explicitly calculate and store three diffe
 
 For each of these values we store genotype probabilities over the four, phased genotype states, i.e. aa, aA, Aa, AA. In all cases the first allele is the allele inherited from the sire, and the second is the allele that was inherited from the dam.
 
-One of the key things about imputation is that individual's inherit their chromosomes from their parents in large blocks. If we knew which blocks an individual inherited, we could use that information to help us determine what alleles the individual carried, and also to determine which alleles their parents carried. For each individual, we estimate these values using a "segregation probability". We code segregation probabilities in two forms, either as the joint probability for both the paternal and maternal segregation (given by four values, ordered  `pp, pm, mp, mm` where the first value is for the sire, and an "m" stands for the parent's maternal haplotype), or as the probability for either the sire or the dam (a pair of single values giving the probability that the individual inherits the maternal haplotype, i.e. a seg=1 means that the individual inherits the maternal haplotype for that parent).
+One of the key things about imputation is that individual's inherit their chromosomes from their parents in large blocks. If we knew which blocks an individual inherited, we could use that information to help us determine what alleles the individual carried, and also to determine which alleles their parents carried. For each individual, we estimate these values using a "segregation probability".
 
-In a lot of places, we will rely pretty heavily on calculating "inheritance" probabilities. These give the probability that a child inherits an allele based on the genotypes of their parents. For some cases this is simple, e.g., if the sire is  `AA`, and the dam is `aa` then the child will be `Aa`; we know that both parents will transmit a single allele and so the sire will  transmit a copy of `A` and the dam will transmit a copy of `a` so the resulting offspring will be  `Aa`.
+We code segregation probabilities in two forms,
+- as the joint probability for both the paternal and maternal segregation (given by four values, ordered  `pp, pm, mp, mm` where the first value is for the sire, and an "m" stands for the parent's maternal haplotype),
+- or as the probability for either the sire or the dam (a pair of single values giving the probability that the individual inherits the maternal haplotype, i.e. a seg=1 means that the individual inherits the maternal haplotype for that parent).
+
+In a lot of places, we will rely pretty heavily on calculating "inheritance" or "transmission" probabilities. These give the probability that a child inherits an allele based on the genotypes of their parents. For some cases this is simple, e.g., if the sire is  `AA`, and the dam is `aa` then the child will be `Aa`; we know that both parents will transmit a single allele and so the sire will  transmit a copy of `A` and the dam will transmit a copy of `a` so the resulting offspring will be  `Aa`.
 
 Other cases may be more stochastic. If the sire is heterozygous, `aA`, and the segregation is unknown, then there will be a 50% probability that the child will inherit an `a` and a 50% probability they inherit a `A`. If the sire is `aA` and the dam is `AA` then the genotype probabilities of the offspring will be:
 ```
@@ -99,11 +106,10 @@ Segregation
 We estimate the segregation values in a two step process. In the first step we create "point estimates" for the segregation values. In the second step we smooth the point estimates.
 
 1. In step 1 we look to see if the child's haplotype for a single parent matches one of the parent's haplotypes, but not the other.
-* For example, if the parent is `aA`, and the child is `aa` we will set the segregation value of `pp` and `pm` to `1-e` since that is consistent with the child inheriting the grand paternal allele (first allele) from their sire.
-* We also can consider the case where the child is unphased and heterozygote. In this case we see if a particular combination of parental haplotypes will produce a heterozygous offspring.
-* We used called genotypes in this step because an individual (and their parent's) genotypes are not statistically independent from each other at each loci. Using genotype probabilities (particularly for the parents) can produce erroneous results.
+    - For example, if the parent is `aA`, and the child is `aa` we will set the segregation value of `pp` and `pm` to `1-e` since that is consistent with the child inheriting the grand paternal allele (first allele) from their sire.
+    - We also can consider the case where the child is unphased and heterozygote. In this case we see if a particular combination of parental haplotypes will produce a heterozygous offspring.
+    - We used called genotypes in this step because an individual (and their parent's) genotypes are not statistically independent from each other at each loci. Using genotype probabilities (particularly for the parents) can produce erroneous results.
 2. For the second step we use a standard forward-backward algorithm, lifted almost directly from AlphaPeel. The transmission rate determines how much uncertainty when moving from one loci to the next.
-* Add some math here?
 
 
 Specific code comments
@@ -117,7 +123,7 @@ General Math
 Parallel
 --
 
-In order to parallelize the code, we take an approach similar to AlphaPeel. The overall idea is to find blocks of individuals who can be updated at the same time (in parallel) and perform those updates. In the context of peeling, we can break up individuals into discrete generations and perform updates on all of the individuals in the same generation at the same time. Like with AlphaPeel, we use a `ThreadPoolExecutor` to perform tasks in parallel, and use `numba`'s `nogil` flag to get around the global interpreter lock.
+In order to parallelize the code, we take an approach similar to AlphaPeel. The overall idea is to find blocks of individuals who can be updated at the same time (in parallel) and perform those updates. In the context of peeling, we can break up individuals into discrete generations and perform updates on all of the individuals in the same generation at the same time. Like with AlphaPeel, we use a `ThreadPoolExecutor` to perform tasks in parallel, and use `numba`'s `nogil` flag to get around python's global interpreter lock.
 
 Because of the overhead in crating threads, and calling `numba` functions, we split out the tasks in groups of full-sub families, which will be updated at the same time. Because a given parent can be a parent of multiple families (but an offspring can only be an offspring of one family), we set the genotypes for the parents separately in a non-parallel mode. A complete breakdown of the main steps (and parallelization) is given below:
 
@@ -133,32 +139,32 @@ Speed
 - Time seems to be split pretty evenly between the anterior and posterior computation terms.
 - On the whole, the posterior term seems to dominate compared to the anterior term (usually by a factor of ~2).
 - Estimating the segregation appears to be fairly low cost.
-- There do not seem to be any obvious speed gains.
+- There do not seem to be any obvious speed bottlenecks.
 
 Memory
 --
 
-The memory storage takes place inside `jit_Peeling_Individual` in `ImputationIndividual`. The main costs are:
+The storage of values takes place inside `jit_Peeling_Individual` in `ImputationIndividual`. The main costs are:
 
 - three `4xnLoci float32`s:
-- anterior
-- penetrance
-- genotypeProbabilities
+    - anterior
+    - penetrance
+    - genotypeProbabilities
 - For individuals with offspring there are an additional two `4xnloci float32`s:
-- posterior
-- newPosterior
+    - posterior
+    - newPosterior
 - one `2xnLoci float32`:
-- segregation
+    - segregation
 
 There are a lot of possible places to obtain substantial memory savings.
 - For all individuals
-- Because the anterior terms segregate independently, this could be reduced down to `2xnLoci float32`, and re-calculated on the fly.
-- all of the 4xnLoci float32s could potentially be stored as int8s with some conversion from int8->float32. We don't actually need these terms to be very accurate (as long as we can still accurately call values).
+    - Because the anterior terms segregate independently, this could be reduced down to `2xnLoci float32`, and re-calculated on the fly.
+    - all of the 4xnLoci float32s could potentially be stored as int8s with some conversion from int8->float32. We don't actually need these terms to be very accurate (as long as we can still accurately call values).
 - Individuals without offspring
-- For individuals without offspring we only ever use their called genotypes (with just the penetrance term) and segregation estimates in the peeling.
-- These terms come to play in the context of the posterior term for their parents.
-- This means we could potentially just save their genotypes, haplotypes, and segregation estimate.
-- If we need to call the individual in the future, we can re-calculate their anterior term on the fly, and recombine with the individual's genotype.
+    - For individuals without offspring we only ever use their called genotypes (with just the penetrance term) and segregation estimates in the peeling.
+    - These terms come to play in the context of the posterior term for their parents.
+    - This means we could potentially just save their genotypes, haplotypes, and segregation estimate.
+    - If we need to call the individual in the future, we can re-calculate their anterior term on the fly, and recombine with the individual's genotype.
 - For individuals with offspring:
-- We only ever use the penetrance+posterior or penetrance+anterior+posterior. We could calculate and store these values explicitly instead of storing them independently and re-calculating the genotype probabilities.
-- We currently store the posterior estimates as a list and re-add. We could instead store the values as a single matrix and just add each time. We need to be careful with the parallel updates on this term though.
+    - We only ever use the penetrance+posterior or penetrance+anterior+posterior. We could calculate and store these values explicitly instead of storing them independently and re-calculating the genotype probabilities.
+    - We currently store the posterior estimates as a list and re-add. We could instead store the values as a single matrix and just add each time. We need to be careful with the parallel updates on this term though.
