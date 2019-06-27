@@ -1,7 +1,7 @@
 from ..tinyhouse import Pedigree
 
 import numba
-from numba import jit, int8, int64, boolean, deferred_type, optional, jitclass, float32, double
+from numba import jit, int8, int64, boolean, optional, jitclass, float32
 from collections import OrderedDict
 import numpy as np
 
@@ -16,16 +16,13 @@ class AlphaImputeIndividual(Pedigree.Individual):
     def __init__(self, idx, idn):
         super().__init__(idx, idn)
 
-        self.originalGenotypes = None
-
     def setupIndividual(self):
-        nLoci = len(self.genotypes)
         self.setPeelingView()
 
     def setPeelingView(self):
         # Set the 
         if self.genotypes is None or self.haplotypes is None:
-            raise ValueError("In order to just in time an Individual, both genotypes and haplotypes need to be not None")
+            raise ValueError("In order to create a jit_Peeling_Individual both the genotypes and haplotypes need to be created.")
         nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
 
         if len(self.offspring) > 0:
@@ -60,20 +57,25 @@ spec['currentCutoff'] = float32
 
 @jitclass(spec)
 class jit_Peeling_Individual(object):
+    '''
+    This class holds a lot of arrays for peeling individuals and a handful of functions to translate genotypes => probabilities and back again.
+    '''
     def __init__(self, idn, genotypes, haplotypes, has_offspring, nLoci):
         self.idn = idn
 
         self.genotypes = genotypes
         self.haplotypes = haplotypes
         
-
+        # Initial value for segregation is .5 to represent uncertainty between haplotype inheritance.
         self.segregation = (np.full(nLoci, .5, dtype = np.float32), np.full(nLoci, .5, dtype = np.float32))
-        self.anterior = np.full((4, nLoci), 1, dtype = np.float32) # There's probably some space saving format we could do here... 
+
+        self.anterior = np.full((4, nLoci), 1, dtype = np.float32) 
         self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
         self.genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
 
-        self.has_offspring = has_offspring
 
+        # Create the posterior terms.
+        self.has_offspring = has_offspring
         if self.has_offspring:
             self.posterior = np.full((4, nLoci), 1, dtype = np.float32)
         else:
@@ -82,6 +84,14 @@ class jit_Peeling_Individual(object):
         self.nLoci = nLoci
 
         self.newPosterior = None
+
+        # Current state indicates which genotype combination an individual is set to, and the cutoff value used for calling their genotypes.
+        # Missing = -1
+        # ALL = 0
+        # POSTERIOR = 1
+        # PENTRANCE = 2
+        # Anterior = 3
+        # We only ever use ALL or POSTERIOR.
 
         self.currentState = -1
         self.currentCutoff = 0
@@ -115,7 +125,8 @@ class jit_Peeling_Individual(object):
     def setAnterior(self, newAnterior):
         self.anterior = newAnterior
         if self.currentState == 0 or self.currentState == 3:
-            # i.e. if current state uses the anterior estimate.
+            # i.e. if current state is ALL or ANTERIOR which use the anterior estimate.
+            # If the current state is not one of those two, we will re-calculate the genotype probabilities when we set the individual to one of those states.
             self.currentState = -1
 
     def setPosterior(self):
@@ -126,7 +137,7 @@ class jit_Peeling_Individual(object):
             nPost = len(self.newPosterior)
             for i in range(nPost):
                 sumPosterior += self.newPosterior[i]
-            self.posterior = set_posterior_from_scores(sumPosterior)
+            self.posterior = self.set_posterior_from_scores(sumPosterior)
             self.currentState = -1
             self.newPosterior = None
 
@@ -247,18 +258,17 @@ class jit_Peeling_Individual(object):
                 self.haplotypes[1][i] = 9
 
 
-@jit(nopython=True, nogil = True)
-def set_posterior_from_scores(scores):
-    nLoci = scores.shape[1]
-    posterior = np.full((4, nLoci), 1, dtype = np.float32)
-    e = 0.001
-    # Maybe could do below in a cleaner fasion, but this is nice and explicit.
-    for i in range(nLoci) :
-        vals = exp_1D_norm(scores[:,i])
-        
-        for j in range(4):
-            posterior[j, i] = vals[j]*(1-e) + e/4           
-    return posterior
+    def set_posterior_from_scores(self, scores):
+        nLoci = scores.shape[1]
+        posterior = np.full((4, nLoci), 1, dtype = np.float32)
+        e = 0.001
+        # Maybe could do below in a cleaner fasion, but this is nice and explicit.
+        for i in range(nLoci) :
+            vals = exp_1D_norm(scores[:,i])
+            
+            for j in range(4):
+                posterior[j, i] = vals[j]*(1-e) + e/4           
+        return posterior
 
 
 
@@ -295,7 +305,7 @@ def exp_1D_norm(mat):
 
 @jit(nopython=True, nogil = True)
 def normalize(values):
-
+    # Normalize values along a single axis.
     for i in range(values.shape[1]):
         count = 0
         for j in range(4):
@@ -306,68 +316,3 @@ def normalize(values):
                 values[j, i]/= count
             else:
                 values[j, i] = .25
-
-
-# @jit(nopython=True, nogil = True)
-# def setGenotypesFromPeelingData_ngil(ind, useAnterior = False, usePenetrance = False, usePosterior = False, cutoff = 0.99):
-#     nLoci = ind.nLoci
-
-#     ind.genotypeProbabilities[:,:] = 1
-#     finalGenotypes = ind.genotypeProbabilities
-#     if useAnterior:
-#         finalGenotypes *= ind.anterior
-#     if usePosterior and ind.has_offspring:
-#         finalGenotypes *= ind.posterior
-#     if usePenetrance:
-#         finalGenotypes *= ind.penetrance
-
-#     normalize(finalGenotypes)
-
-#     # set genotypes/haplotypes from this value.
-#     for i in range(nLoci):
-#         # We now set to missing below.
-#         # self.genotypes[i] = 9
-#         # self.haplotypes[0][i] = 9
-#         # self.haplotypes[1][i] = 9
-
-
-#         # Set genotype.
-#         maxGenotype = 0
-#         maxVal = finalGenotypes[0,i]
-
-#         if finalGenotypes[1,i] + finalGenotypes[2,i] > maxVal:
-#             maxGenotype = 1
-#             maxVal = finalGenotypes[1,i] + finalGenotypes[2,i] 
-#         if finalGenotypes[3,i] > maxVal:
-#             maxGenotype = 2
-#             maxVal = finalGenotypes[3,i]
-
-#         if maxVal > cutoff:
-#             ind.genotypes[i] = maxGenotype
-#         else: 
-#             ind.genotypes[i] = 9
-
-
-#         # Set haplotype.
-
-#         hap0 = finalGenotypes[2, i] + finalGenotypes[3, i]
-#         hap1 = finalGenotypes[1, i] + finalGenotypes[3, i]
-
-#         if hap0 > cutoff:
-#             ind.haplotypes[0][i] = 1
-#         elif hap0 < 1 - cutoff:
-#             ind.haplotypes[0][i] = 0
-#         else:
-#             ind.haplotypes[0][i] = 9
-
-
-#         if hap1 > cutoff:
-#             ind.haplotypes[1][i] = 1
-#         elif hap1 < 1 - cutoff:
-#             ind.haplotypes[1][i] = 0
-#         else:
-#             ind.haplotypes[1][i] = 9
-
-
-
-
