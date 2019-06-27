@@ -157,6 +157,7 @@ The storage of values takes place inside `jit_Peeling_Individual` in `Imputation
     - segregation
 
 There are a lot of possible places to obtain substantial memory savings.
+
 - For all individuals
     - Because the anterior terms segregate independently, this could be reduced down to `2xnLoci float32`, and re-calculated on the fly.
     - all of the 4xnLoci float32s could potentially be stored as int8s with some conversion from int8->float32. We don't actually need these terms to be very accurate (as long as we can still accurately call values).
