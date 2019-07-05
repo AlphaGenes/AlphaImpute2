@@ -21,6 +21,22 @@ except:
     def profile(x): 
         return x
 
+def run_phaseHD(pedigree):
+
+    phasingInfo = PhasingInformation()
+    indList = [ind for ind in pedigree if ind.initHD]
+
+    print("Phasing HD individuals: ", len(indList))
+    markers = np.array([i for i in range(pedigree.nLoci)], dtype = np.int64)
+    phasingInfo.addIndividuals(indList, markers)
+
+    runPhasing(phasingInfo, nHets = [20, 30, 40, 50], finalNHet = 50)
+
+def runPhasing(phasingInfo, nHets, finalNHet) :
+    for nHet in nHets:
+        phaseHD(phasingInfo, nHet, setHap = False)
+    phaseHD(phasingInfo, finalNHet, setHap = True)
+    phasingInfo.alignIndividuals()
 
 @profile
 def phaseHD(phasingInfo, nHet, setHap = False) :

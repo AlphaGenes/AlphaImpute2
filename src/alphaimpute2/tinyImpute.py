@@ -3,7 +3,7 @@ from .tinyhouse import InputOutput
 from .tinyhouse import ProbMath
 
 from .Imputation import ProbPhasing
-from .Imputation import HeuristicBWImpute
+from .Imputation import ParticlePhasing
 from .Imputation import Heuristic_Peeling
 from .Imputation import ImputationIndividual
 from .Imputation import Imputation
@@ -66,6 +66,8 @@ def getArgs() :
     core_impute_parser = parser.add_argument_group("Impute options")
     core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
+    
+    core_impute_parser.add_argument('-phase', action='store_true', required=False, help='Flag to run the phasing algorithm.')
    
 
 
@@ -78,8 +80,8 @@ def writeOutResults(pedigree, args):
     if args.binaryoutput :
         InputOutput.writeOutGenotypesPlink(pedigree, args.out)
     else:
-        for ind in pedigree:
-            ind.peeling_view.setGenotypesAll(.1)
+        # for ind in pedigree:
+        #     ind.peeling_view.setGenotypesAll(.7)
 
         pedigree.writeGenotypes(args.out + ".genotypes")
         pedigree.writePhase(args.out + ".phase")
@@ -108,9 +110,13 @@ def main():
     # Fill in haplotypes and phase
     setupImputation(pedigree)
 
+    if args.phase:
+        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > .9]
+        ParticlePhasing.phase_individuals(hd_individuals)
+        # ProbPhasing.run_phaseHD(pedigree)
+
     # Run family based phasing.
     Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
-
 
     # Write out results
     startTime = datetime.datetime.now()

@@ -17,6 +17,8 @@ class AlphaImputeIndividual(Pedigree.Individual):
         super().__init__(idx, idn)
 
     def setupIndividual(self):
+
+        self.setPhasingView()
         self.setPeelingView()
 
     def setPeelingView(self):
@@ -31,6 +33,42 @@ class AlphaImputeIndividual(Pedigree.Individual):
             self.has_offspring = False
 
         self.peeling_view = jit_Peeling_Individual(self.idn, self.genotypes, self.haplotypes, self.has_offspring, nLoci)
+
+    def setPhasingView(self):
+        # Set the 
+        if self.genotypes is None or self.haplotypes is None:
+            raise ValueError("In order to create a jit_Phasing_Individual both the genotypes and haplotypes need to be created.")
+        nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
+
+        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, nLoci)
+
+
+
+spec = OrderedDict()
+spec['idn'] = int64
+spec['nLoci'] = int64
+spec['genotypes'] = int8[:]
+
+# Haplotypes and reads are a tuple of int8 and int64.
+spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+
+spec['penetrance'] = float32[:,:]
+
+
+@jitclass(spec)
+class jit_Phasing_Individual(object):
+    '''
+    This class holds data for phasing a given individual.
+    '''
+    def __init__(self, idn, genotypes, haplotypes, nLoci):
+        self.idn = idn
+        self.nLoci = nLoci
+        self.genotypes = genotypes
+        self.haplotypes = haplotypes
+        self.current_haplotypes = (haplotypes[0].copy(), haplotypes[1].copy())
+        
+        self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
 
 
 spec = OrderedDict()
@@ -148,7 +186,7 @@ class jit_Peeling_Individual(object):
             self.newPosterior.append(newValues)
 
 
-    def setValueFromGenotypes(self, mat):
+    def setValueFromGenotypes(self, mat, error_rate):
         nLoci = self.nLoci
         mat[:,:] = 1
         for i in range(nLoci):
@@ -188,10 +226,12 @@ class jit_Peeling_Individual(object):
                 mat[0,i] = 0
                 mat[2,i] = 0
 
-            e = 0.01
+            e = error_rate
             count = 0
             for j in range(4):
                 count += mat[j, i]
+            if count == 0:
+                print(g, self.haplotypes[0][i], self.haplotypes[1][i])
             for j in range(4):
                 mat[j, i] = mat[j, i]/count*(1-e) + e/4
 

@@ -63,7 +63,7 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
 
     # Run peeling cycle. Cutoffs are for genotype probabilities. 
     # Segregation call value is hard-coded to .99
-    cutoffs =       [.99] + [args.cutoff for i in range(args.cycles - 1)]
+    cutoffs = [.99] + [args.cutoff for i in range(args.cycles - 1)]
     runPeelingCycles(pedigree, args, cutoffs)
 
     # Set to best-guess genotypes.
@@ -74,7 +74,7 @@ def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and all individual's penetrance values for Heuristic peeling.
 
     for ind in pedigree:
-        ind.peeling_view.setValueFromGenotypes(ind.peeling_view.penetrance)
+        ind.peeling_view.setValueFromGenotypes(ind.peeling_view.penetrance, 0.01)
 
     # Set anterior values for founders. 
     # Although the maf will change as more individuals are imputed, we're just going to do this once.
