@@ -104,7 +104,7 @@ class jit_BurrowsWheelerLibrary():
         pass
 
 @njit
-def createBWLibrary(haps):
+def createBWLibrary_with_d(haps):
     
     #Definitions.
     # haps : a list of haplotypes
@@ -198,6 +198,82 @@ def createBWLibrary(haps):
             if haps[a[j, i], i+1] == 0:
                 count += 1
             zeroOccNext[j, i] = count
+
+
+    library = jit_BurrowsWheelerLibrary(a, d, nZerosArray, zeroOccNext, haps)
+    return library
+
+@njit
+def createBWLibrary(haps):
+    
+    #Definitions.
+    # haps : a list of haplotypes
+    # a : an ordering of haps in lexographic order.
+    # d : the length of the longest match between each (sorted) haplotype and the previous (sorted) haplotype.
+
+    nHaps = haps.shape[0]
+    nLoci = haps.shape[1]
+    a = np.full(haps.shape, 0, dtype = np.int64)
+    d = np.full(haps.shape, 0, dtype = np.int64)
+
+    nZerosArray = np.full(nLoci, 0, dtype = np.int64)
+
+    zeros = np.full(nHaps, 0, dtype = np.int64)
+    ones = np.full(nHaps, 0, dtype = np.int64)
+    
+    nZeros = 0
+    nOnes = 0
+    for j in range(nHaps):
+        if haps[j, 0] == 0:
+            zeros[nZeros] = j
+            nZeros += 1
+        else:
+            ones[nOnes] = j    
+            nOnes += 1
+    if nZeros > 0:
+        a[0:nZeros, 0] = zeros[0:nZeros]
+
+    if nOnes > 0:
+        a[nZeros:nHaps, 0] = ones[0:nOnes]
+
+    nZerosArray[0] = nZeros
+    zeroOccNext = np.full(haps.shape, 0, dtype = np.int64)
+
+    for i in range(1, nLoci) :
+        
+        # zeros[:] = 0 # We should be safe without doing this; i.e. we only use the part of zeros that we set.
+        # ones[:] = 0  # We should be safe without doing this; i.e. we only use the part of zeros that we set.    
+        nZeros = 0
+        nOnes = 0
+
+        z_occ_count = 0
+        for j in range(nHaps) :
+
+            if haps[a[j, i-1], i] == 0:
+                zeros[nZeros] = a[j, i-1]
+                nZeros += 1
+                z_occ_count += 1
+            else:
+                ones[nOnes] = a[j, i-1]
+                nOnes += 1
+
+            # Updating zeroOccNext in a single pass.
+            zeroOccNext[j, i-1] = z_occ_count
+
+        if nZeros > 0:
+            a[0:nZeros, i] = zeros[0:nZeros]
+
+        if nOnes > 0:
+            a[nZeros:nHaps, i] = ones[0:nOnes]
+        nZerosArray[i] = nZeros
+        
+
+    # for i in range(0, nLoci-1):
+    #     count = 0
+    #     for j in range(0, nHaps):
+    #         if haps[a[j, i], i+1] == 0:
+    #             count += 1
+    #         zeroOccNext[j, i] = count
 
 
     library = jit_BurrowsWheelerLibrary(a, d, nZerosArray, zeroOccNext, haps)
@@ -342,7 +418,7 @@ def createBWLibrary(haps):
 # print(bwlib.library.get_null_state(0))
 # print(bwlib.library.update_state((0, 13), 1))
 
-# print(bwlib.getHaplotypeMatches(haplotype = np.array([0, 0, 0], dtype = np.int8), start = 0, stop = 3))
-# tmp = (bwlib.getHaplotypeMatches(haplotype = np.array([9, 9, 9, 9, 9, 9, 9], dtype = np.int8), start = 0, stop = 7))
-# for key, value in tmp:
-#     print(key, value)
+# # print(bwlib.getHaplotypeMatches(haplotype = np.array([0, 0, 0], dtype = np.int8), start = 0, stop = 3))
+# # tmp = (bwlib.getHaplotypeMatches(haplotype = np.array([9, 9, 9, 9, 9, 9, 9], dtype = np.int8), start = 0, stop = 7))
+# # for key, value in tmp:
+# #     print(key, value)

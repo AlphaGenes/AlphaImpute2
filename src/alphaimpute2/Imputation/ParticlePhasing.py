@@ -38,14 +38,19 @@ def time_func(text):
 @profile
 def phase_individuals(individuals) :
 
+    for ind in individuals:
+        # We never call genotypes so can do this once.
+        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0)
+
+
     for rep in range(5):
         phase_round(individuals, set_haplotypes = False)
     
     phase_round(individuals, set_haplotypes = True)
 
 
-
 @time_func("Phasing round")
+@profile
 def phase_round(individuals, set_haplotypes = False):
     haplotype_library = HaplotypeLibrary()
     
@@ -57,22 +62,20 @@ def phase_round(individuals, set_haplotypes = False):
     
     haplotype_library.removeMissingValues()
 
-    bwLibrary = BurrowsWheelerLibrary.BurrowsWheelerLibrary(haplotype_library.library)
-
-
-
-    for ind in individuals:
-        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0)
-
-
+    bwLibrary = createBWlibrary(haplotype_library)
+    # bwLibrary = BurrowsWheelerLibrary.BurrowsWheelerLibrary(haplotype_library.library)
 
     for ind in individuals:
         phase(ind, bwLibrary, set_haplotypes = set_haplotypes)
 
+@time_func("Creating BW library")
+def createBWlibrary(haplotype_library):
+    return BurrowsWheelerLibrary.BurrowsWheelerLibrary(haplotype_library.library)
+
+@profile
 def phase(ind, haplotype_library, set_haplotypes = False) :
 
     # pat_hap, mat_hap = sampler.get_haplotypes()
-    
     if set_haplotypes:
         rate = 10
     else:
@@ -97,6 +100,7 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
     
 
 
+@profile
 def get_consensus(haplotypes):
     genotypes = get_consensus_genotypes(haplotypes)
     return get_consensus_haplotype(haplotypes, genotypes)
@@ -200,16 +204,31 @@ class Sampler(object):
 
     def get_haplotypes(self):
         # Converts genotypes to haplotypes.
-        pat_hap = np.full(self.nLoci, 9, dtype = np.int8)
-        mat_hap = np.full(self.nLoci, 9, dtype = np.int8)
+        return self.get_haplotypes_numba(self.genotypes, self.nLoci)
 
-        for i in range(self.nLoci):
-            pat_hap[i], mat_hap[i] = decode_genotype(self.genotypes[i])
+    @staticmethod
+    @njit
+    def get_haplotypes_numba(genotypes, nLoci):
+        pat_hap = np.full(nLoci, 9, dtype = np.int8)
+        mat_hap = np.full(nLoci, 9, dtype = np.int8)
 
+        for i in range(nLoci):
+            geno = genotypes[i]
+            if geno == 0:
+                pat_hap[i] = 0
+                mat_hap[i] = 0
+            if geno == 1:
+                pat_hap[i] = 0
+                mat_hap[i] = 1
+            if geno == 2:
+                pat_hap[i] = 1
+                mat_hap[i] = 0
+            if geno == 3:
+                pat_hap[i] = 1
+                mat_hap[i] = 1
         return pat_hap, mat_hap
+
     def sample(self):
-
-
         self.genotypes = haplib_sample(self.haplotype_library.library, self.ind.phasing_view)
 
 @jit(nopython=True)
@@ -221,15 +240,16 @@ def haplib_sample(haplotype_library, ind):
     # current_state = ([i for i in range(haplotype_library.nHaps)], [i for i in range(haplotype_library.nHaps)])
     
     genotypes = np.full(nLoci, 9, dtype = np.float32)
-    count = 0
+    values = np.full((4,4), 0, dtype = np.float32) # Just create this once.
+
     for i in range(nLoci):
-        new_state, geno, count = sample_locus(current_state, i, count, haplotype_library, ind)
+        new_state, geno = sample_locus(current_state, i, haplotype_library, ind, values)
         genotypes[i] = geno
         current_state = new_state
     return genotypes
 
 @jit(nopython=True)
-def sample_locus(current_states, index, count, haplotype_library, ind):
+def sample_locus(current_states, index, haplotype_library, ind, values):
 
     # We want to do a couple of things. 
     # Of the current states, we want to work out which combinations will be produced at the next loci.
@@ -247,6 +267,7 @@ def sample_locus(current_states, index, count, haplotype_library, ind):
     hap_lib = haplotype_library.get_null_state(index)
 
 
+
     current_pat_counts = (current_pat[0][1] - current_pat[0][0], current_pat[1][1] - current_pat[1][0])
     current_mat_counts = (current_mat[0][1] - current_mat[0][0], current_mat[1][1] - current_mat[1][0])
     
@@ -255,33 +276,25 @@ def sample_locus(current_states, index, count, haplotype_library, ind):
 
     # Recombination ordering. Could do 2 x 2 I guess...
     # nn, nr, rn, rr
-    values = np.full((4,4), 0, dtype = np.float32)
-    values[0,:] = get_haps_probs(current_pat_counts, current_mat_counts) * (1-rec)*(1-rec)
-    values[1,:] = get_haps_probs(current_pat_counts, hap_lib_counts) * (1-rec)*rec
-    values[2,:] = get_haps_probs(hap_lib_counts, current_mat_counts) * rec*(1-rec)
-    values[3,:] = get_haps_probs(hap_lib_counts, hap_lib_counts) * rec*rec
+
+    get_haps_probs(values[0,:], current_pat_counts, current_mat_counts,  (1-rec)*(1-rec))
+    get_haps_probs(values[1,:], current_pat_counts, hap_lib_counts, (1-rec)*rec)  
+    get_haps_probs(values[2,:], hap_lib_counts, current_mat_counts, rec*(1-rec))
+    get_haps_probs(values[3,:], hap_lib_counts, hap_lib_counts, rec*rec) 
 
     for i in range(4):
-        # This is the individual's genotype probabilities. 
-        values[i,:] *= ind.penetrance[:,index]
+        for j in range(4):
+            # This is the individual's genotype probabilities. 
+            values[i,j] *= ind.penetrance[j,index]
 
 
     # Zero index of new_value is recombination status, one index is resulting genotype.
     
     new_value = weighted_sample_2D(values)
 
-    if new_value[0] > 0:
-        count += 1            
-
-    # print(values)
-    # print(values[new_value[0], new_value[1]])
-    # print(new_value)
-    # print(self.ind.phasing_view.penetrance[:,index])
-
-    pat_value, mat_value = decode_genotype(new_value[1])
-    # print(pat_value, mat_value, new_value[1])
-
     geno = new_value[1]
+    pat_value, mat_value = decode_genotype(new_value[1]) # Split out the genotype value into pat/mat states
+
 
     if new_value[0] == 0 or new_value[0] == 1:
         # No paternal recombination.
@@ -301,11 +314,12 @@ def sample_locus(current_states, index, count, haplotype_library, ind):
 
     # print(self.ind.idx, new_state)
 
-    return new_state, geno, count        
+    return new_state, geno        
 
 
 @jit(nopython=True)
-def get_haps_probs(pat_haps, mat_haps):
+def get_haps_probs(values, pat_haps, mat_haps, scale):
+    # scale accounts for recombination rates.
 
     if pat_haps[0] + pat_haps[1] > 0:
         prop_pat_0 = pat_haps[0]/(pat_haps[0] + pat_haps[1])
@@ -322,19 +336,23 @@ def get_haps_probs(pat_haps, mat_haps):
         prop_mat_0 = 0
         prop_mat_1 = 0
 
-    values = np.full(4, 0, dtype = np.float32)
+    values[0] = prop_pat_0 * prop_mat_0 * scale
+    values[1] = prop_pat_0 * prop_mat_1 * scale
+    values[2] = prop_pat_1 * prop_mat_0 * scale
+    values[3] = prop_pat_1 * prop_mat_1 * scale
 
-    values[0] = prop_pat_0 * prop_mat_0
-    values[1] = prop_pat_0 * prop_mat_1
-    values[2] = prop_pat_1 * prop_mat_0
-    values[3] = prop_pat_1 * prop_mat_1
-
-    return values
+    # return values
 
 
 @njit
 def weighted_sample_2D(mat):
-    total = np.sum(mat)
+    # total = np.sum(mat)
+    
+    total = 0
+    for i in range(mat.shape[0]):
+        for j in range(mat.shape[1]):
+            total += mat[i, j]
+
     value = random.random()*total
 
     for i in range(mat.shape[0]):
@@ -345,6 +363,7 @@ def weighted_sample_2D(mat):
 
 
     return (0,0)
+
 
 @njit
 def decode_genotype(geno):
@@ -358,7 +377,6 @@ def decode_genotype(geno):
         return (1, 1)
 
     return (20, 20)
-
 
 class HaplotypeLibrary(object) :
     def __init__(self) :
