@@ -3,6 +3,7 @@ from numba import njit, jit, int8, int32, boolean, jitclass
 import numpy as np
 
 from ..tinyhouse import InputOutput
+from . import BurrowsWheelerLibrary
 
 from . import Imputation
 import random
@@ -19,6 +20,20 @@ except:
     def profile(x): 
         return x
 
+import datetime
+def time_func(text):
+    # This creates a decorator with "text" set to "text"
+    def timer_dec(func):
+        # This is the returned, modified, function
+        def timer(*args, **kwargs):
+            start_time = datetime.datetime.now()
+            values = func(*args, **kwargs)
+            print(text, (datetime.datetime.now() - start_time).total_seconds())
+            return values
+        return timer
+
+    return timer_dec
+
 
 @profile
 def phase_individuals(individuals) :
@@ -30,7 +45,7 @@ def phase_individuals(individuals) :
 
 
 
-
+@time_func("Phasing round")
 def phase_round(individuals, set_haplotypes = False):
     haplotype_library = HaplotypeLibrary()
     
@@ -40,15 +55,19 @@ def phase_round(individuals, set_haplotypes = False):
             #     print(ind.idx)
             haplotype_library.append(hap.copy())
     
+    haplotype_library.removeMissingValues()
+
+    bwLibrary = BurrowsWheelerLibrary.BurrowsWheelerLibrary(haplotype_library.library)
+
+
+
     for ind in individuals:
         ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0)
 
 
-    haplotype_library.removeMissingValues()
-    haplotype_library.setup_split_states()
 
     for ind in individuals:
-        phase(ind, haplotype_library, set_haplotypes = set_haplotypes)
+        phase(ind, bwLibrary, set_haplotypes = set_haplotypes)
 
 def phase(ind, haplotype_library, set_haplotypes = False) :
 
@@ -191,12 +210,15 @@ class Sampler(object):
     def sample(self):
 
 
-        self.genotypes = haplib_sample(self.haplotype_library, self.ind.phasing_view)
+        self.genotypes = haplib_sample(self.haplotype_library.library, self.ind.phasing_view)
 
+@jit(nopython=True)
 def haplib_sample(haplotype_library, ind):
-    nHaps, nLoci = haplotype_library.library.shape
+    nHaps, nLoci = haplotype_library.a.shape
 
-    current_state = ([i for i in range(haplotype_library.nHaps)], [i for i in range(haplotype_library.nHaps)])
+    current_state = ((0, 1), (0, 1))
+
+    # current_state = ([i for i in range(haplotype_library.nHaps)], [i for i in range(haplotype_library.nHaps)])
     
     genotypes = np.full(nLoci, 9, dtype = np.float32)
     count = 0
@@ -204,26 +226,31 @@ def haplib_sample(haplotype_library, ind):
         new_state, geno, count = sample_locus(current_state, i, count, haplotype_library, ind)
         genotypes[i] = geno
         current_state = new_state
-    print(ind.idn, count)
     return genotypes
 
+@jit(nopython=True)
 def sample_locus(current_states, index, count, haplotype_library, ind):
 
     # We want to do a couple of things. 
     # Of the current states, we want to work out which combinations will be produced at the next loci.
     # then work out probabilities.
-    nHaps, nLoci = haplotype_library.library.shape
+    nHaps, nLoci = haplotype_library.a.shape
 
     rec = 10/nLoci
 
-    current_pat = split_states(haplotype_library, current_states[0], index)
-    current_mat = split_states(haplotype_library, current_states[1], index)
+    if index != 0:
+        current_pat = haplotype_library.update_state(current_states[0], index)
+        current_mat = haplotype_library.update_state(current_states[1], index)
+    else:
+        current_pat = haplotype_library.get_null_state(index)
+        current_mat = haplotype_library.get_null_state(index)
+    hap_lib = haplotype_library.get_null_state(index)
 
-    hap_lib = haplotype_library.split_states[index]
 
-    current_pat_counts = (len(current_pat[0]), len(current_pat[1]))
-    current_mat_counts = (len(current_mat[0]), len(current_mat[1]))
-    hap_lib_counts = (len(hap_lib[0]), len(hap_lib[1]))
+    current_pat_counts = (current_pat[0][1] - current_pat[0][0], current_pat[1][1] - current_pat[1][0])
+    current_mat_counts = (current_mat[0][1] - current_mat[0][0], current_mat[1][1] - current_mat[1][0])
+    
+    hap_lib_counts = (hap_lib[0][1] - hap_lib[0][0], hap_lib[1][1] - hap_lib[1][0])
 
 
     # Recombination ordering. Could do 2 x 2 I guess...
@@ -242,6 +269,7 @@ def sample_locus(current_states, index, count, haplotype_library, ind):
     # Zero index of new_value is recombination status, one index is resulting genotype.
     
     new_value = weighted_sample_2D(values)
+
     if new_value[0] > 0:
         count += 1            
 
@@ -275,16 +303,6 @@ def sample_locus(current_states, index, count, haplotype_library, ind):
 
     return new_state, geno, count        
 
-def split_states(haplotype_library, states, index):
-    zero_haps = []
-    one_haps = []
-    for state in states:
-        if haplotype_library.library[state, index] == 0:
-            zero_haps.append(state)
-        else:
-            one_haps.append(state)
-
-    return (zero_haps, one_haps)
 
 @jit(nopython=True)
 def get_haps_probs(pat_haps, mat_haps):
@@ -356,24 +374,24 @@ class HaplotypeLibrary(object) :
     def removeMissingValues(self):
         for hap in self.library:
             removeMissingValues(hap)
-        self.library = np.array(self.library)
+        # self.library = np.array(self.library)
 
     def asMatrix(self):
         return np.array(self.library)
 
 
-    def setup_split_states(self):
-        nHaps, nLoci = self.library.shape
-        for i in range(nLoci):
-            zero_haps = []
-            one_haps = []
+    # def setup_split_states(self):
+    #     nHaps, nLoci = self.library.shape
+    #     for i in range(nLoci):
+    #         zero_haps = []
+    #         one_haps = []
 
-            for hap in range(nHaps):
-                if self.library[hap, i] == 0:
-                    zero_haps.append(hap)
-                else:
-                    one_haps.append(hap)
-            self.split_states.append((zero_haps, one_haps))
+    #         for hap in range(nHaps):
+    #             if self.library[hap, i] == 0:
+    #                 zero_haps.append(hap)
+    #             else:
+    #                 one_haps.append(hap)
+    #         self.split_states.append((zero_haps, one_haps))
 
 
 @njit

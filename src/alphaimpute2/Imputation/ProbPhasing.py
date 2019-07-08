@@ -20,6 +20,20 @@ try:
 except:
     def profile(x): 
         return x
+import datetime
+def time_func(text):
+    # This creates a decorator with "text" set to "text"
+    def timer_dec(func):
+        # This is the returned, modified, function
+        def timer(*args, **kwargs):
+            start_time = datetime.datetime.now()
+            values = func(*args, **kwargs)
+            print(text, (datetime.datetime.now() - start_time).total_seconds())
+            return values
+        return timer
+
+    return timer_dec
+
 
 def run_phaseHD(pedigree):
 
@@ -38,7 +52,7 @@ def runPhasing(phasingInfo, nHets, finalNHet) :
     phaseHD(phasingInfo, finalNHet, setHap = True)
     phasingInfo.alignIndividuals()
 
-@profile
+@time_func("Phasing round")
 def phaseHD(phasingInfo, nHet, setHap = False) :
     print(nHet, len(phasingInfo.referenceHaplotypes))
     hapLib = HaplotypeLibrary.HaplotypeLibrary()
