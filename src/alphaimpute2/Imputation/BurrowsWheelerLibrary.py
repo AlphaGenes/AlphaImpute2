@@ -18,27 +18,69 @@ except:
 #####################################
 
 class BurrowsWheelerLibrary():
-    def __init__(self, haplotypeList):
-        self.library = createBWLibrary(np.array(haplotypeList))
-        self.hapList = haplotypeList
-        self.nHaps = len(haplotypeList)
-    def getHaplotypeMatches(self, haplotype, start, stop):
-        nHaps, hapIndexes = getConsistentHaplotypes(self.library, haplotype, start, stop)
-        haps = [(self.hapList[hapIndexes[index, 0]], hapIndexes[index, 1]) for index in range(nHaps)]
-        return haps
-    @profile
-    def getBestHaplotype(self, weights, start, stop):
-        index = getHaplotypesPlusWeights(self.library, weights, start, stop)
+    def __init__(self):
+        self.library = []
+        self.nHaps = 0
 
-        return self.hapList[index][start:stop]
+        self.individual_dictionary = dict()
+
+        self.library_created = False
+
+    def append(self, hap, ind = None):
+        if self.library_created :
+            print("WARNING: BW library has alread been created, new haplotypes cannot be added.")
+        else:
+            self.library.append(hap)
+            self.nHaps = len(self.library)
+
+            if ind is not None:
+                idn = ind.idn
+                current_haps = []
+                if idn in self.individual_dictionary:
+                    tmp_ind, current_haps = self.individual_dictionary[idn]
+                current_haps += [len(self.library) -1]
+                self.individual_dictionary[idn] = (ind, current_haps)
+
+    def removeMissingValues(self):
+        for hap in self.library:
+            removeMissingValues(hap)
+
+
+    def setup_library(self):
+        self.removeMissingValues()
+        self.library = createBWLibrary(np.array(self.library))
+        self.library_created = True
+
+        self.set_exclusions()
+
+    def set_exclusions(self):
+        if len(self.individual_dictionary) > 0:
+            self.library.set_reverse_library()
+
+            for ind, haps in self.individual_dictionary.values():
+                exclusion = self.library.reverse_library[haps,:]
+                ind.phasing_view.set_own_haplotypes(exclusion)
+
+
+@njit
+def removeMissingValues(hap):
+    for i in range(len(hap)) :
+        if hap[i] == 9:
+            if random.random() > .5:
+                hap[i] = 1
+            else:
+                hap[i] = 0
+
 
 jit_BurrowsWheelerLibrary_spec = OrderedDict()
 jit_BurrowsWheelerLibrary_spec['a'] = int64[:,:]
 jit_BurrowsWheelerLibrary_spec['d'] = int64[:,:]
+jit_BurrowsWheelerLibrary_spec['reverse_library'] = int64[:,:]
 jit_BurrowsWheelerLibrary_spec['zeroOccNext'] = int64[:,:]
 jit_BurrowsWheelerLibrary_spec['nZeros'] = int64[:]
 jit_BurrowsWheelerLibrary_spec['haps'] = int8[:,:]
 jit_BurrowsWheelerLibrary_spec['nHaps'] = int64
+jit_BurrowsWheelerLibrary_spec['nLoci'] = int64
 
 @jitclass(jit_BurrowsWheelerLibrary_spec)
 class jit_BurrowsWheelerLibrary():
@@ -48,13 +90,67 @@ class jit_BurrowsWheelerLibrary():
         self.nZeros = nZeros
         self.zeroOccNext = zeroOccNext
         self.haps = haps
-        self.nHaps = haps.shape[0]
+        self.nHaps, self.nLoci = haps.shape
+
+        self.reverse_library = np.full((1, 1), 0, dtype = np.int64)
 
     def getValues(self):
         return (self.a, self.d, self.nZeros, self.zeroOccNext, self.haps)
 
     def update_state(self, state, index):
         return (self.update_state_value(state, index, 0), self.update_state_value(state, index, 1))
+
+
+    def set_reverse_library(self):
+
+        self.reverse_library = np.full(self.a.shape, 0, dtype = np.int64)
+
+        for i in range(self.nLoci):
+            for j in range(self.nHaps):
+
+                self.reverse_library[self.a[j, i], i] = j
+
+
+    def update_state_new(self, state, index):
+        
+        # Note: index needs to be greater than 1.
+
+        int_start, int_end = state
+        if int_end - int_start <= 0:
+            return ((-1, -1), (-1, -1))
+
+        # zero_next_start = self.zeroOccNext[int_start-1, index-1]
+        # zero_next_end = self.zeroOccNext[int_end-1, index-1]
+
+        # zeros_index = self.nZeros[index]
+
+        # Set up val_0
+
+        if int_start == 0:
+            lowerR = 0
+        else:
+            lowerR = self.zeroOccNext[int_start-1, index-1]
+        upperR = self.zeroOccNext[int_end-1, index-1] #Number of zeros in the region. 
+    
+        if lowerR >= upperR:
+            vals_0 = (-1, -1)
+        else:
+            vals_0 = (lowerR, upperR)
+
+        # set up val_1
+
+        if int_start == 0:
+            lowerR = self.nZeros[index]
+        else:
+            lowerR = self.nZeros[index] + (int_start - self.zeroOccNext[int_start-1, index-1]) 
+        upperR = self.nZeros[index] + (int_end - self.zeroOccNext[int_end-1, index-1])
+
+        if lowerR >= upperR:
+            vals_1 = (-1, -1)
+        else:
+            vals_1 = (lowerR, upperR)
+
+        return (vals_0, vals_1)
 
     def update_state_value(self, state, index, value):
         
@@ -88,20 +184,8 @@ class jit_BurrowsWheelerLibrary():
 
 
     def get_null_state(self, index):
-        return (self.get_null_state_value(index, 0), self.get_null_state_value(index, 1))
+        return ((0, self.nZeros[index]), (self.nZeros[index], self.nHaps))
 
-    def get_null_state_value(self, index, value):
-        if value == 0:
-            lowerR = 0
-            upperR = self.nZeros[index]
-
-        if value == 1:
-            lowerR = self.nZeros[index]
-            upperR = self.nHaps
-
-        return (lowerR, upperR)
-
-        pass
 
 @njit
 def createBWLibrary_with_d(haps):
@@ -385,23 +469,23 @@ def createBWLibrary(haps):
     
 #     # print(zeroOccNext[:,:])
 
-# hapLib = [np.array([1, 0, 0, 0, 0, 0, 1], dtype = np.int8),
-#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),
-#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),
-#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([1, 1, 1, 0, 0, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([1, 1, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 0, 1, 0, 0, 0], dtype = np.int8),
-#           np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),
-#           np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),
-#           np.array([1, 1, 0, 1, 0, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8)]
+# hapLib = [np.array([1, 0, 0, 0, 0, 0, 1], dtype = np.int8),  # 0 
+#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 1
+#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 2
+#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 3
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 4
+#           np.array([1, 1, 1, 0, 0, 0, 0], dtype = np.int8),  # 5
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 6
+#           np.array([1, 1, 1, 0, 1, 0, 0], dtype = np.int8),  # 7
+#           np.array([0, 0, 0, 1, 0, 0, 0], dtype = np.int8),  # 8
+#           np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),  # 9
+#           np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),  # 10
+#           np.array([1, 1, 0, 1, 0, 0, 0], dtype = np.int8),  # 11
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 12
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 13
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 14
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 15
+#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8)]  # 16
 
 # bwlib = BurrowsWheelerLibrary(hapLib)
 
@@ -417,6 +501,12 @@ def createBWLibrary(haps):
 
 # print(bwlib.library.get_null_state(0))
 # print(bwlib.library.update_state((0, 13), 1))
+
+# bwlib.library.set_reverse_library()
+# print(bwlib.library.a)
+
+# print(bwlib.library.reverse_library)
+
 
 # # print(bwlib.getHaplotypeMatches(haplotype = np.array([0, 0, 0], dtype = np.int8), start = 0, stop = 3))
 # # tmp = (bwlib.getHaplotypeMatches(haplotype = np.array([9, 9, 9, 9, 9, 9, 9], dtype = np.int8), start = 0, stop = 7))

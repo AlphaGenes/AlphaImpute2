@@ -55,6 +55,8 @@ spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np
 
 spec['penetrance'] = float32[:,:]
 
+spec['own_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int64), np.array([0], dtype = np.int64)))
+spec['has_own_haplotypes'] = boolean
 
 @jitclass(spec)
 class jit_Phasing_Individual(object):
@@ -69,6 +71,14 @@ class jit_Phasing_Individual(object):
         self.current_haplotypes = (haplotypes[0].copy(), haplotypes[1].copy())
         
         self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+
+
+        self.own_haplotypes = (np.array([0, 1], dtype = np.int64), np.array([0], dtype = np.int64))
+        self.has_own_haplotypes = False
+
+    def set_own_haplotypes(self, haplotypes_in):
+        self.own_haplotypes = haplotypes_in
+        self.has_own_haplotypes = True
 
 
 spec = OrderedDict()

@@ -1,6 +1,8 @@
 import numba
-from numba import njit, jit, int8, int32, boolean, jitclass
 import numpy as np
+
+from numba import njit, jit, int8, int64, boolean, optional, jitclass, float32
+from collections import OrderedDict
 
 from ..tinyhouse import InputOutput
 from . import BurrowsWheelerLibrary
@@ -36,7 +38,7 @@ def time_func(text):
 
 
 @profile
-def phase_individuals(individuals) :
+def phase_individuals(individuals, pedigree) :
 
     for ind in individuals:
         # We never call genotypes so can do this once.
@@ -52,25 +54,30 @@ def phase_individuals(individuals) :
 @time_func("Phasing round")
 @profile
 def phase_round(individuals, set_haplotypes = False):
-    haplotype_library = HaplotypeLibrary()
+    bwLibrary = get_reference_library(individuals)
+    phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes = set_haplotypes)
+
+@time_func("Creating BW library")
+@profile
+def get_reference_library(individuals, individual_exclusion = False):
+    haplotype_library = BurrowsWheelerLibrary.BurrowsWheelerLibrary()
     
     for ind in individuals:
         for hap in ind.phasing_view.current_haplotypes:
-            # if np.mean(hap != 9) > .9:
-            #     print(ind.idx)
-            haplotype_library.append(hap.copy())
-    
-    haplotype_library.removeMissingValues()
+            if individual_exclusion:
+                haplotype_library.append(hap.copy(), ind)
+            else:
+                haplotype_library.append(hap.copy())
 
-    bwLibrary = createBWlibrary(haplotype_library)
-    # bwLibrary = BurrowsWheelerLibrary.BurrowsWheelerLibrary(haplotype_library.library)
+    haplotype_library.setup_library()
+    return haplotype_library
+
+
+
+def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes):
 
     for ind in individuals:
         phase(ind, bwLibrary, set_haplotypes = set_haplotypes)
-
-@time_func("Creating BW library")
-def createBWlibrary(haplotype_library):
-    return BurrowsWheelerLibrary.BurrowsWheelerLibrary(haplotype_library.library)
 
 @profile
 def phase(ind, haplotype_library, set_haplotypes = False) :
@@ -81,32 +88,62 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
     else:
         rate = 10
 
-    haplotypes = []
-    for i in range(1):
-        sampler = Sampler(ind, haplotype_library, rate = rate)
-        sampler.sample()
-        haplotypes.append(sampler.get_haplotypes())
+    samples = []
 
-    pat_hap, mat_hap = get_consensus(np.array(haplotypes))
+    if set_haplotypes:
+        n_samples = 20
+    else:
+        n_samples = 1
+
+    for i in range(n_samples):
+        sampler = Sampler(ind, haplotype_library, rate = rate)
+        samples.append(sampler.sample())
+
+    # pat_hap, mat_hap = get_consensus(np.array(haplotypes))
+    pat_hap, mat_hap = get_consensus(ind.phasing_view, samples)
 
 
     if set_haplotypes:
-        ind.haplotypes[0][:] = pat_hap
-        ind.haplotypes[1][:] = mat_hap
-        ind.genotypes[:] = pat_hap + mat_hap
+        add_haplotypes_to_ind(ind.phasing_view, pat_hap, mat_hap)
     else:
         ind.phasing_view.current_haplotypes[0][:] = pat_hap
         ind.phasing_view.current_haplotypes[1][:] = mat_hap
     
 
+@jit(nopython=True)
+def add_haplotypes_to_ind(ind, pat_hap, mat_hap):
+    nLoci = len(pat_hap)
+    for i in range(nLoci):
+        # if ind.genotypes[i] != 9:
+        ind.haplotypes[0][i] = pat_hap[i]
+        ind.haplotypes[1][i] = mat_hap[i]
+        ind.genotypes[i] = pat_hap[i] + mat_hap[i]
 
-@profile
-def get_consensus(haplotypes):
-    genotypes = get_consensus_genotypes(haplotypes)
+
+@jit(nopython=True)
+def get_consensus(ind, samples):
+    if len(samples) == 1:
+        return samples[0].haplotypes
+
+    nHaps = len(samples)
+    nLoci = len(samples[0].genotypes)
+
+    haplotypes = np.full((nHaps, 2, nLoci), 0,  dtype = np.int64)
+    for i in range(nHaps):
+        for j in range(2):
+            haplotypes[i, j, :] = samples[i].haplotypes[j]
+
+
+    rec_scores = np.full((nHaps, nLoci), 0,  dtype = np.int64)
+    for i in range(nHaps):
+        rec_scores[i, :] = samples[i].rec
+
+    # genotypes = get_consensus_genotypes(haplotypes)
+    # genotypes = get_consensus_genotypes_max_path_length(ind, haplotypes, rec_scores)
+    genotypes = get_consensus_genotypes_smallest_region_rec(ind, haplotypes, rec_scores)
     return get_consensus_haplotype(haplotypes, genotypes)
 
-
-@njit
+@jit(nopython=True)
 def get_consensus_haplotype(haplotypes, genotypes):
     nHaps, tmp, nLoci = haplotypes.shape
     alignment = np.full(nHaps, 0, dtype = np.int8)
@@ -180,6 +217,52 @@ def get_consensus_genotypes(haplotypes):
     return genotypes
 
 @njit
+def get_consensus_genotypes_max_path_length(ind, haplotypes, rec_scores):
+    nHaps, tmp, nLoci = haplotypes.shape
+
+    genotypes = np.full(nLoci, 0, dtype = np.int8)
+    for i in range(nLoci):
+        
+        score = 0    
+        index = 0
+        for j in range(nHaps):
+            # if ind.genotypes[i] == 9:
+            #     print(rec_scores[j, i], haplotypes[j, 0, i] + haplotypes[j, 1, i], rec_scores[index, i], haplotypes[index, 0, i] + haplotypes[index, 1, i])
+            if rec_scores[j, i] > score:
+                score = rec_scores[j, i]
+                index = j
+        genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
+
+    return genotypes
+@njit
+def get_consensus_genotypes_smallest_region_rec(ind, haplotypes, rec_scores):
+    nHaps, tmp, nLoci = haplotypes.shape
+
+    genotypes = np.full(nLoci, 0, dtype = np.int8)
+    
+    p = np.full(3, 0, dtype = np.int32)
+
+    for i in range(nLoci):
+        
+        score = nLoci    
+        index = 0
+        for j in range(nHaps):
+            # if ind.genotypes[i] == 9:
+            #     print(rec_scores[j, i], haplotypes[j, 0, i] + haplotypes[j, 1, i], rec_scores[index, i], haplotypes[index, 0, i] + haplotypes[index, 1, i])
+            if rec_scores[j, i]< score:
+                score = rec_scores[j, i]
+        p[:] = 0
+        count = 0
+        for j in range(nHaps):
+            if rec_scores[j, i] == score:
+                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
+                p[geno] += 1
+                count +=1
+        genotypes[i] = call(p)
+
+    return genotypes
+
+@njit
 def call(array) :
     max_index = 0
     max_value = array[0]
@@ -190,25 +273,40 @@ def call(array) :
     return max_index
 
 
+
+
+
+spec = OrderedDict()
+spec['raw_genotypes'] = int64[:]
+spec['genotypes'] = int8[:]
+spec['rec'] = int64[:]
+
+spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+
+@jitclass(spec)
+class Sample(object):
+
+    def __init__(self, raw_genotypes, genotypes, haplotypes, rec):
+         self.raw_genotypes = raw_genotypes
+         self.genotypes = genotypes
+         self.haplotypes = haplotypes
+         self.rec = rec
+
+
 class Sampler(object):
 
     def __init__(self, ind, haplotype_library, rate = 10):
         self.nLoci = len(ind.genotypes)
         self.ind = ind
         self.haplotype_library = haplotype_library
-
-        self.genotypes = np.full(self.nLoci, 9, dtype = np.float32)
-
         self.rate = rate
 
 
-    def get_haplotypes(self):
-        # Converts genotypes to haplotypes.
-        return self.get_haplotypes_numba(self.genotypes, self.nLoci)
-
     @staticmethod
     @njit
-    def get_haplotypes_numba(genotypes, nLoci):
+    def get_haplotypes(genotypes):
+        nLoci = len(genotypes)
         pat_hap = np.full(nLoci, 9, dtype = np.int8)
         mat_hap = np.full(nLoci, 9, dtype = np.int8)
 
@@ -229,7 +327,11 @@ class Sampler(object):
         return pat_hap, mat_hap
 
     def sample(self):
-        self.genotypes = haplib_sample(self.haplotype_library.library, self.ind.phasing_view)
+        raw_genotypes, rec = haplib_sample(self.haplotype_library.library, self.ind.phasing_view)
+        haplotypes = self.get_haplotypes(raw_genotypes)
+        genotypes = haplotypes[0] + haplotypes[1]
+
+        return Sample(raw_genotypes, genotypes, haplotypes, rec)
 
 @jit(nopython=True)
 def haplib_sample(haplotype_library, ind):
@@ -239,14 +341,69 @@ def haplib_sample(haplotype_library, ind):
 
     # current_state = ([i for i in range(haplotype_library.nHaps)], [i for i in range(haplotype_library.nHaps)])
     
-    genotypes = np.full(nLoci, 9, dtype = np.float32)
-    values = np.full((4,4), 0, dtype = np.float32) # Just create this once.
+    genotypes = np.full(nLoci, 9, dtype = np.int64)
+    rec = np.full(nLoci, 0, dtype = np.int64)
+    values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
 
     for i in range(nLoci):
-        new_state, geno = sample_locus(current_state, i, haplotype_library, ind, values)
+        new_state, geno, rec[i] = sample_locus(current_state, i, haplotype_library, ind, values)
         genotypes[i] = geno
         current_state = new_state
-    return genotypes
+    return genotypes, count_regional_rec(rec, 50)
+    # return genotypes, calculate_rec_distance(rec)
+
+@jit(nopython = True)
+def calculate_rec_distance(rec):
+    nLoci = len(rec)
+    forward = np.full(nLoci, 0, dtype = np.int64)
+    backward = np.full(nLoci, 0, dtype = np.int64)
+    
+    count = nLoci + 1
+    for i in range(nLoci):
+        count += 1
+        if rec[i] >= 1:
+            count = 0
+        forward[i] = count
+
+    count = nLoci + 1
+    for i in range(nLoci-1, -1, -1):
+        count += 1
+        if rec[i] >= 1:
+            count = 0
+        backward[i] = count
+
+    combined = np.full(nLoci, 0, dtype = np.int64)
+    for i in range(nLoci):
+        combined[i] = min(forward[i], backward[i])
+
+    return combined
+
+
+@jit(nopython = True)
+def count_regional_rec(rec, region = 25):
+    nLoci = len(rec)
+    forward = np.full(nLoci, 0, dtype = np.int64)
+ 
+    count = nLoci + 1
+    for i in range(nLoci):
+        count += rec[i]
+        forward[i] = count
+
+    combined = np.full(nLoci, 0, dtype = np.int64)
+    for i in range(nLoci):
+        start = max(0, i - region)
+        end = start + region*2
+        if end >= nLoci:
+            end = nLoci-1
+            start = end - region*2
+
+        combined[i] = forward[end] - forward[start]
+
+    return combined
+
+
+# rec = np.array([0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1])
+# count_regional_rec(rec, 2)
 
 @jit(nopython=True)
 def sample_locus(current_states, index, haplotype_library, ind, values):
@@ -256,11 +413,11 @@ def sample_locus(current_states, index, haplotype_library, ind, values):
     # then work out probabilities.
     nHaps, nLoci = haplotype_library.a.shape
 
-    rec = 10/nLoci
+    rec = 5/nLoci
 
     if index != 0:
-        current_pat = haplotype_library.update_state(current_states[0], index)
-        current_mat = haplotype_library.update_state(current_states[1], index)
+        current_pat = haplotype_library.update_state_new(current_states[0], index)
+        current_mat = haplotype_library.update_state_new(current_states[1], index)
     else:
         current_pat = haplotype_library.get_null_state(index)
         current_mat = haplotype_library.get_null_state(index)
@@ -274,8 +431,8 @@ def sample_locus(current_states, index, haplotype_library, ind, values):
     hap_lib_counts = (hap_lib[0][1] - hap_lib[0][0], hap_lib[1][1] - hap_lib[1][0])
 
 
-    # Recombination ordering. Could do 2 x 2 I guess...
-    # nn, nr, rn, rr
+    # # Recombination ordering. Could do 2 x 2 I guess...
+    # # nn, nr, rn, rr
 
     get_haps_probs(values[0,:], current_pat_counts, current_mat_counts,  (1-rec)*(1-rec))
     get_haps_probs(values[1,:], current_pat_counts, hap_lib_counts, (1-rec)*rec)  
@@ -295,7 +452,6 @@ def sample_locus(current_states, index, haplotype_library, ind, values):
     geno = new_value[1]
     pat_value, mat_value = decode_genotype(new_value[1]) # Split out the genotype value into pat/mat states
 
-
     if new_value[0] == 0 or new_value[0] == 1:
         # No paternal recombination.
         pat_haps = current_pat[pat_value]
@@ -310,11 +466,17 @@ def sample_locus(current_states, index, haplotype_library, ind, values):
         # maternal recombination
         mat_haps = hap_lib[mat_value]
 
+    rec = 0
+    if new_value[0] == 1 or new_value[0] == 2:
+        rec = 1
+    if new_value[0] == 3:
+        rec = 2
+
     new_state = (pat_haps, mat_haps)
 
     # print(self.ind.idx, new_state)
 
-    return new_state, geno        
+    return new_state, geno, rec        
 
 
 @jit(nopython=True)
@@ -352,7 +514,6 @@ def weighted_sample_2D(mat):
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
             total += mat[i, j]
-
     value = random.random()*total
 
     for i in range(mat.shape[0]):
@@ -378,45 +539,50 @@ def decode_genotype(geno):
 
     return (20, 20)
 
-class HaplotypeLibrary(object) :
-    def __init__(self) :
-        self.library = []
-        self.nHaps = 0
-        self.split_states = []
-        # self.randGen = jit_RandomBinary(1000) #Hard coding for now. 1000 seemed reasonable.
+# class HaplotypeLibrary(object) :
+#     def __init__(self) :
+#         self.library = []
+#         self.nHaps = 0
+#         self.split_states = []
+#         # self.randGen = jit_RandomBinary(1000) #Hard coding for now. 1000 seemed reasonable.
 
-    def append(self, hap):
-        self.library.append(hap)
-        self.nHaps = len(self.library)
+#     def append(self, hap):
+#         self.library.append(hap)
+#         self.nHaps = len(self.library)
 
-    def removeMissingValues(self):
-        for hap in self.library:
-            removeMissingValues(hap)
-        # self.library = np.array(self.library)
+#     def removeMissingValues(self, maf = None):
+#         if maf is None:
+#             maf = np.full(len(self.library[0]), .5, dtype = np.float32)
+#         for hap in self.library:
+#             removeMissingValues(hap, maf)
+#         # self.library = np.array(self.library)
 
-    def asMatrix(self):
-        return np.array(self.library)
-
-
-    # def setup_split_states(self):
-    #     nHaps, nLoci = self.library.shape
-    #     for i in range(nLoci):
-    #         zero_haps = []
-    #         one_haps = []
-
-    #         for hap in range(nHaps):
-    #             if self.library[hap, i] == 0:
-    #                 zero_haps.append(hap)
-    #             else:
-    #                 one_haps.append(hap)
-    #         self.split_states.append((zero_haps, one_haps))
+#     def asMatrix(self):
+#         return np.array(self.library)
 
 
-@njit
-def removeMissingValues(hap):
-    for i in range(len(hap)) :
-        if hap[i] == 9:
-            hap[i] = random.randint(0, 1)
+#     # def setup_split_states(self):
+#     #     nHaps, nLoci = self.library.shape
+#     #     for i in range(nLoci):
+#     #         zero_haps = []
+#     #         one_haps = []
+
+#     #         for hap in range(nHaps):
+#     #             if self.library[hap, i] == 0:
+#     #                 zero_haps.append(hap)
+#     #             else:
+#     #                 one_haps.append(hap)
+#     #         self.split_states.append((zero_haps, one_haps))
+
+
+# @njit
+# def removeMissingValues(hap, maf):
+#     for i in range(len(hap)) :
+#         if hap[i] == 9:
+#             if random.random() > maf[i]:
+#                 hap[i] = 1
+#             else:
+#                 hap[i] = 0
 
 
 

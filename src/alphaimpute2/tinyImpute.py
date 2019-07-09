@@ -112,11 +112,12 @@ def main():
 
     if args.phase:
         hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > .9]
-        ParticlePhasing.phase_individuals(hd_individuals)
+        print(len(hd_individuals), "Sent to phasing")
+        ParticlePhasing.phase_individuals(hd_individuals, pedigree)
         # ProbPhasing.run_phaseHD(pedigree)
 
     # Run family based phasing.
-    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
+    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .8)
 
     # Write out results
     startTime = datetime.datetime.now()

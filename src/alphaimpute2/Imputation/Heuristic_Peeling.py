@@ -78,12 +78,13 @@ def setupHeuristicPeeling(pedigree, args):
 
     # Set anterior values for founders. 
     # Although the maf will change as more individuals are imputed, we're just going to do this once.
-    pedigree.setMaf()
-    founder_anterior = ProbMath.getGenotypesFromMaf(pedigree.maf)
-    founder_anterior = founder_anterior*(1-0.1) + 0.1/4 # Add an additional ~10% noise to prevent fixing of genotypes with low maf.
-    for ind in pedigree:
-        if ind.isFounder():
-            ind.peeling_view.setAnterior(founder_anterior.copy())
+    
+    # pedigree.setMaf()
+    # founder_anterior = ProbMath.getGenotypesFromMaf(pedigree.maf)
+    # founder_anterior = founder_anterior*(1-0.1) + 0.1/4 # Add an additional ~10% noise to prevent fixing of genotypes with low maf.
+    # for ind in pedigree:
+    #     if ind.isFounder():
+    #         ind.peeling_view.setAnterior(founder_anterior.copy())
 
 @time_func("Core peeling cycles")
 def runPeelingCycles(pedigree, args, cutoffs):
