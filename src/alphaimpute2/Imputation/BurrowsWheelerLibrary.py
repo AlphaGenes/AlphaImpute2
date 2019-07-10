@@ -97,10 +97,6 @@ class jit_BurrowsWheelerLibrary():
     def getValues(self):
         return (self.a, self.d, self.nZeros, self.zeroOccNext, self.haps)
 
-    def update_state(self, state, index):
-        return (self.update_state_value(state, index, 0), self.update_state_value(state, index, 1))
-
-
     def set_reverse_library(self):
 
         self.reverse_library = np.full(self.a.shape, 0, dtype = np.int64)
@@ -111,7 +107,7 @@ class jit_BurrowsWheelerLibrary():
                 self.reverse_library[self.a[j, i], i] = j
 
 
-    def update_state_new(self, state, index):
+    def update_state(self, state, index):
         
         # Note: index needs to be greater than 1.
 

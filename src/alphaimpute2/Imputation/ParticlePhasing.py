@@ -210,7 +210,7 @@ def get_consensus_haplotype(haplotypes, genotypes):
 
     return haps
 
-@njit
+@jit(nopython=True, nogil=True) 
 def get_consensus_genotypes(haplotypes):
     nHaps, tmp, nLoci = haplotypes.shape
     genotypes = np.full(nLoci, 0, dtype = np.int8)
@@ -225,7 +225,8 @@ def get_consensus_genotypes(haplotypes):
 
     return genotypes
 
-@njit
+
+@jit(nopython=True, nogil=True) 
 def get_consensus_genotypes_max_path_length(ind, haplotypes, rec_scores):
     nHaps, tmp, nLoci = haplotypes.shape
 
@@ -241,7 +242,9 @@ def get_consensus_genotypes_max_path_length(ind, haplotypes, rec_scores):
         genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
 
     return genotypes
-@njit
+
+
+@jit(nopython=True, nogil=True) 
 def get_consensus_genotypes_smallest_region_rec(ind, haplotypes, rec_scores):
     nHaps, tmp, nLoci = haplotypes.shape
 
@@ -268,8 +271,7 @@ def get_consensus_genotypes_smallest_region_rec(ind, haplotypes, rec_scores):
     return genotypes
 
 
-
-@jit(nopython = True)
+@jit(nopython=True, nogil=True) 
 def calculate_rec_distance(rec):
     nLoci = len(rec)
     forward = np.full(nLoci, 0, dtype = np.int64)
@@ -296,7 +298,7 @@ def calculate_rec_distance(rec):
     return combined
 
 
-@jit(nopython = True)
+@jit(nopython=True, nogil=True) 
 def count_regional_rec(rec, region = 25):
     nLoci = len(rec)
     forward = np.full(nLoci, 0, dtype = np.int64)
@@ -320,7 +322,7 @@ def count_regional_rec(rec, region = 25):
 
 
 
-@njit
+@jit(nopython=True, nogil=True) 
 def get_max_index(array) :
     max_index = 0
     max_value = array[0]
@@ -353,6 +355,7 @@ class Sample(object):
     def sample(self, haplotype_library, ind):
         self.raw_genotypes, rec = haplib_sample(haplotype_library, ind, self.rate)
         self.haplotypes = self.get_haplotypes()
+        # self.haplotypes = get_haplotypes(self.raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
         self.rec = rec
 
@@ -376,6 +379,28 @@ class Sample(object):
                 pat_hap[i] = 1
                 mat_hap[i] = 1
         return pat_hap, mat_hap
+
+@jit(nopython=True, nogil=True) 
+def get_haplotypes(raw_genotypes):
+    nLoci = len(raw_genotypes)
+    pat_hap = np.full(nLoci, 9, dtype = np.int8)
+    mat_hap = np.full(nLoci, 9, dtype = np.int8)
+
+    for i in range(nLoci):
+        geno = raw_genotypes[i]
+        if geno == 0:
+            pat_hap[i] = 0
+            mat_hap[i] = 0
+        if geno == 1:
+            pat_hap[i] = 0
+            mat_hap[i] = 1
+        if geno == 2:
+            pat_hap[i] = 1
+            mat_hap[i] = 0
+        if geno == 3:
+            pat_hap[i] = 1
+            mat_hap[i] = 1
+    return pat_hap, mat_hap
 
 
 @jit(nopython=True, nogil=True) 
@@ -411,8 +436,8 @@ def sample_locus(current_states, index, haplotype_library, ind, values, rate):
     rec = rate
 
     if index != 0:
-        current_pat = haplotype_library.update_state_new(current_states[0], index)
-        current_mat = haplotype_library.update_state_new(current_states[1], index)
+        current_pat = haplotype_library.update_state(current_states[0], index)
+        current_mat = haplotype_library.update_state(current_states[1], index)
     else:
         current_pat = haplotype_library.get_null_state(index)
         current_mat = haplotype_library.get_null_state(index)
