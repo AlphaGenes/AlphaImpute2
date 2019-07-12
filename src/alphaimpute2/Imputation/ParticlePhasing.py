@@ -10,6 +10,7 @@ from itertools import repeat
 
 from . import BurrowsWheelerLibrary
 from . import Imputation
+from . import ImputationIndividual
 
 from ..tinyhouse.Utils import time_func
 from ..tinyhouse import InputOutput
@@ -21,7 +22,7 @@ except:
         return x
 
 
-
+@time_func("Total phasing")
 @profile
 def create_library_and_phase(individuals, pedigree, args) :
     # This function creates a haplotype library and phases individuals using the haplotype library.
@@ -106,16 +107,11 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
     else:
         n_samples = 1
 
+    samples = Sample_container(haplotype_library, ind)
     for i in range(n_samples):
-        sample = Sample(rate)
-        sample.sample(haplotype_library, ind)
+        samples.add_sample(rate)
 
-        if samples is None:
-            samples = [sample]
-        else:
-            samples += [sample]
-
-    pat_hap, mat_hap = get_consensus(ind, samples)
+    pat_hap, mat_hap = samples.get_consensus()
 
     if set_haplotypes:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
@@ -134,203 +130,6 @@ def add_haplotypes_to_ind(ind, pat_hap, mat_hap):
         ind.haplotypes[1][i] = mat_hap[i]
         ind.genotypes[i] = pat_hap[i] + mat_hap[i]
 
-
-### 
-### The following is a bunch of code to handle consensus of multiple samples.
-### This should probably be condensed and made better.
-###
-
-@jit(nopython=True, nogil=True) 
-def get_consensus(ind, samples):
-    if len(samples) == 1:
-        return samples[0].haplotypes
-
-    nHaps = len(samples)
-    nLoci = len(samples[0].genotypes)
-
-    haplotypes = np.full((nHaps, 2, nLoci), 0,  dtype = np.int64)
-    for i in range(nHaps):
-        for j in range(2):
-            haplotypes[i, j, :] = samples[i].haplotypes[j]
-
-
-    rec_scores = np.full((nHaps, nLoci), 0,  dtype = np.int64)
-    for i in range(nHaps):
-        rec_scores[i, :] = count_regional_rec(samples[i].rec, 50)
-
-    # genotypes = get_consensus_genotypes(haplotypes)
-    # genotypes = get_consensus_genotypes_max_path_length(ind, haplotypes, rec_scores)
-    genotypes = get_consensus_genotypes_smallest_region_rec(ind, haplotypes, rec_scores)
-    return get_consensus_haplotype(haplotypes, genotypes)
-
-@jit(nopython=True, nogil=True) 
-def get_consensus_haplotype(haplotypes, genotypes):
-    nHaps, tmp, nLoci = haplotypes.shape
-    alignment = np.full(nHaps, 0, dtype = np.int8)
-    
-    haps = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
-
-    for i in range(nLoci):
-        if genotypes[i] == 0:
-            haps[0][i] = 0
-            haps[1][i] = 0
-        if genotypes[i] == 2:
-            haps[0][i] = 1
-            haps[1][i] = 1
-
-        if genotypes[i] == 1:
-            count0 = 0
-            count1 = 0
-
-            for j in range(nHaps):
-                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
-                if geno == 1:
-                    # If the genotype is not 1, throw out the haplotype for this loci.
-                    if haplotypes[j, alignment[j], i] == 0:
-                        count0 += 1
-                    else:
-                        count1 += 1
-
-            # Set the haplotype
-            if count0 >= count1:
-                haps[0][i] = 0
-                haps[1][i] = 1
-            else:
-                haps[0][i] = 1
-                haps[1][i] = 0
-
-            # Set alignment:
-            for j in range(nHaps):
-                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
-                if geno == 1:
-                    if haplotypes[j, 0, i] == haps[0][i]:
-                        alignment[j] = 0
-                    else:
-                        alignment[j] = 1
-
-    return haps
-
-@jit(nopython=True, nogil=True) 
-def get_consensus_genotypes(haplotypes):
-    nHaps, tmp, nLoci = haplotypes.shape
-    genotypes = np.full(nLoci, 0, dtype = np.int8)
-    p = np.full(3, 0, dtype = np.int32)
-    for i in range(nLoci):
-        p[:] = 0
-        for j in range(nHaps):
-            geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
-            p[geno] += 1
-
-        genotypes[i] = get_max_index(p)
-
-    return genotypes
-
-
-@jit(nopython=True, nogil=True) 
-def get_consensus_genotypes_max_path_length(ind, haplotypes, rec_scores):
-    nHaps, tmp, nLoci = haplotypes.shape
-
-    genotypes = np.full(nLoci, 0, dtype = np.int8)
-    for i in range(nLoci):
-        
-        score = 0    
-        index = 0
-        for j in range(nHaps):
-            if rec_scores[j, i] > score:
-                score = rec_scores[j, i]
-                index = j
-        genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
-
-    return genotypes
-
-
-@jit(nopython=True, nogil=True) 
-def get_consensus_genotypes_smallest_region_rec(ind, haplotypes, rec_scores):
-    nHaps, tmp, nLoci = haplotypes.shape
-
-    genotypes = np.full(nLoci, 0, dtype = np.int8)
-    
-    p = np.full(3, 0, dtype = np.int32)
-
-    for i in range(nLoci):
-        
-        score = nLoci    
-        index = 0
-        for j in range(nHaps):
-            if rec_scores[j, i]< score:
-                score = rec_scores[j, i]
-        p[:] = 0
-        count = 0
-        for j in range(nHaps):
-            if rec_scores[j, i] == score:
-                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
-                p[geno] += 1
-                count +=1
-        genotypes[i] = get_max_index(p)
-
-    return genotypes
-
-
-@jit(nopython=True, nogil=True) 
-def calculate_rec_distance(rec):
-    nLoci = len(rec)
-    forward = np.full(nLoci, 0, dtype = np.int64)
-    backward = np.full(nLoci, 0, dtype = np.int64)
-    
-    count = nLoci + 1
-    for i in range(nLoci):
-        count += 1
-        if rec[i] >= 1:
-            count = 0
-        forward[i] = count
-
-    count = nLoci + 1
-    for i in range(nLoci-1, -1, -1):
-        count += 1
-        if rec[i] >= 1:
-            count = 0
-        backward[i] = count
-
-    combined = np.full(nLoci, 0, dtype = np.int64)
-    for i in range(nLoci):
-        combined[i] = min(forward[i], backward[i])
-
-    return combined
-
-
-@jit(nopython=True, nogil=True) 
-def count_regional_rec(rec, region = 25):
-    nLoci = len(rec)
-    forward = np.full(nLoci, 0, dtype = np.int64)
- 
-    count = nLoci + 1
-    for i in range(nLoci):
-        count += rec[i]
-        forward[i] = count
-
-    combined = np.full(nLoci, 0, dtype = np.int64)
-    for i in range(nLoci):
-        start = max(0, i - region)
-        end = start + region*2
-        if end >= nLoci:
-            end = nLoci-1
-            start = end - region*2
-
-        combined[i] = forward[end] - forward[start]
-
-    return combined
-
-
-
-@jit(nopython=True, nogil=True) 
-def get_max_index(array) :
-    max_index = 0
-    max_value = array[0]
-    for i in range(1, len(array)):
-        if array[i] > max_value:
-            max_index = i
-            max_value = array[i]
-    return max_index
 
 ###
 ### Actual sampler object 
@@ -355,7 +154,6 @@ class Sample(object):
     def sample(self, haplotype_library, ind):
         self.raw_genotypes, rec = haplib_sample(haplotype_library, ind, self.rate)
         self.haplotypes = self.get_haplotypes()
-        # self.haplotypes = get_haplotypes(self.raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
         self.rec = rec
 
@@ -402,15 +200,45 @@ def get_haplotypes(raw_genotypes):
             mat_hap[i] = 1
     return pat_hap, mat_hap
 
+spec = OrderedDict()
+spec['current_pat_index'] = numba.typeof([0])
+spec['current_mat_index'] = numba.typeof([0])
+spec['pat_ranges'] = numba.optional(numba.typeof([(0,1)])) # i.e. array of integer tuples
+spec['mat_ranges'] = numba.optional(numba.typeof([(0,1)])) # i.e. array of integer tuples
+
+@jitclass(spec)
+class HaplotypeInformation(object):
+    def __init__(self):
+        self.pat_indexes = [0]
+        self.mat_indexes = [0]
+        self.pat_ranges = None    
+        self.mat_ranges = None    
+
+    def add_mat_sample(self, index, value):
+        if self.mat_ranges is None:
+            self.mat_ranges = [value]
+        else:
+            self.mat_ranges += [values]
+
+        if index > -1:
+            self.mat_indexes += [index]
+
+    def add_pat_sample(self, index, value):
+        if self.pat_ranges is None:
+            self.pat_ranges = [value]
+        else:
+            self.pat_ranges += [values]
+
+        if index > -1:
+            self.pat_indexes += [index]
+
 
 @jit(nopython=True, nogil=True) 
 def haplib_sample(haplotype_library, ind, rate):
     nHaps, nLoci = haplotype_library.a.shape
 
     current_state = ((0, 1), (0, 1))
-
-    # current_state = ([i for i in range(haplotype_library.nHaps)], [i for i in range(haplotype_library.nHaps)])
-    
+  
     genotypes = np.full(nLoci, 9, dtype = np.int64)
     rec = np.full(nLoci, 0, dtype = np.int64)
     values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
@@ -573,3 +401,215 @@ def decode_genotype(geno):
 
     return (20, 20)
 
+
+### 
+### The following is a bunch of code to handle consensus of multiple samples.
+### This should probably be condensed and made better.
+###
+
+spec = OrderedDict()
+
+tmp = Sample(0.01)
+spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
+spec['haplotype_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
+spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
+
+@jitclass(spec)
+class Sample_container(object):
+    def __init__(self, haplotype_library, ind):
+        self.samples = None
+        self.haplotype_library = haplotype_library
+        self.ind = ind
+
+    def add_sample(self, rate):
+        new_sample = Sample(rate)
+        new_sample.sample(self.haplotype_library, self.ind)
+        if self.samples is None:
+            self.samples = [new_sample]
+        else:
+            self.samples += [new_sample]
+
+    def get_consensus(self):
+        if len(self.samples) == 1:
+            return self.samples[0].haplotypes
+
+        nHaps = len(self.samples)
+        nLoci = len(self.samples[0].genotypes)
+
+        haplotypes = np.full((nHaps, 2, nLoci), 0,  dtype = np.int64)
+        for i in range(nHaps):
+            for j in range(2):
+                haplotypes[i, j, :] = self.samples[i].haplotypes[j]
+
+
+        rec_scores = np.full((nHaps, nLoci), 0,  dtype = np.int64)
+        for i in range(nHaps):
+            rec_scores[i, :] = count_regional_rec(self.samples[i].rec, 50)
+
+        genotypes = self.get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores)
+        return self.get_consensus_haplotype(haplotypes, genotypes)
+
+    def get_consensus_haplotype(self, haplotypes, genotypes):
+        nHaps, tmp, nLoci = haplotypes.shape
+        alignment = np.full(nHaps, 0, dtype = np.int8)
+        
+        haps = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
+
+        for i in range(nLoci):
+            if genotypes[i] == 0:
+                haps[0][i] = 0
+                haps[1][i] = 0
+            if genotypes[i] == 2:
+                haps[0][i] = 1
+                haps[1][i] = 1
+
+            if genotypes[i] == 1:
+                count0 = 0
+                count1 = 0
+
+                for j in range(nHaps):
+                    geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
+                    if geno == 1:
+                        # If the genotype is not 1, throw out the haplotype for this loci.
+                        if haplotypes[j, alignment[j], i] == 0:
+                            count0 += 1
+                        else:
+                            count1 += 1
+
+                # Set the haplotype
+                if count0 >= count1:
+                    haps[0][i] = 0
+                    haps[1][i] = 1
+                else:
+                    haps[0][i] = 1
+                    haps[1][i] = 0
+
+                # Set alignment:
+                for j in range(nHaps):
+                    geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
+                    if geno == 1:
+                        if haplotypes[j, 0, i] == haps[0][i]:
+                            alignment[j] = 0
+                        else:
+                            alignment[j] = 1
+
+        return haps
+
+    def get_consensus_genotypes(self, haplotypes):
+        nHaps, tmp, nLoci = haplotypes.shape
+        genotypes = np.full(nLoci, 0, dtype = np.int8)
+        p = np.full(3, 0, dtype = np.int32)
+        for i in range(nLoci):
+            p[:] = 0
+            for j in range(nHaps):
+                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
+                p[geno] += 1
+
+            genotypes[i] = get_max_index(p)
+
+        return genotypes
+
+
+    def get_consensus_genotypes_max_path_length(self, haplotypes, rec_scores):
+        nHaps, tmp, nLoci = haplotypes.shape
+
+        genotypes = np.full(nLoci, 0, dtype = np.int8)
+        for i in range(nLoci):
+            
+            score = 0    
+            index = 0
+            for j in range(nHaps):
+                if rec_scores[j, i] > score:
+                    score = rec_scores[j, i]
+                    index = j
+            genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
+
+        return genotypes
+
+
+    def get_consensus_genotypes_smallest_region_rec(self, haplotypes, rec_scores):
+        nHaps, tmp, nLoci = haplotypes.shape
+
+        genotypes = np.full(nLoci, 0, dtype = np.int8)
+        
+        p = np.full(3, 0, dtype = np.int32)
+
+        for i in range(nLoci):
+            
+            score = nLoci    
+            index = 0
+            for j in range(nHaps):
+                if rec_scores[j, i]< score:
+                    score = rec_scores[j, i]
+            p[:] = 0
+            count = 0
+            for j in range(nHaps):
+                if rec_scores[j, i] == score:
+                    geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
+                    p[geno] += 1
+                    count +=1
+            genotypes[i] = get_max_index(p)
+
+        return genotypes
+
+
+@jit(nopython=True, nogil=True) 
+def calculate_rec_distance(rec):
+    nLoci = len(rec)
+    forward = np.full(nLoci, 0, dtype = np.int64)
+    backward = np.full(nLoci, 0, dtype = np.int64)
+    
+    count = nLoci + 1
+    for i in range(nLoci):
+        count += 1
+        if rec[i] >= 1:
+            count = 0
+        forward[i] = count
+
+    count = nLoci + 1
+    for i in range(nLoci-1, -1, -1):
+        count += 1
+        if rec[i] >= 1:
+            count = 0
+        backward[i] = count
+
+    combined = np.full(nLoci, 0, dtype = np.int64)
+    for i in range(nLoci):
+        combined[i] = min(forward[i], backward[i])
+
+    return combined
+
+
+@jit(nopython=True, nogil=True) 
+def count_regional_rec(rec, region = 25):
+    nLoci = len(rec)
+    forward = np.full(nLoci, 0, dtype = np.int64)
+ 
+    count = nLoci + 1
+    for i in range(nLoci):
+        count += rec[i]
+        forward[i] = count
+
+    combined = np.full(nLoci, 0, dtype = np.int64)
+    for i in range(nLoci):
+        start = max(0, i - region)
+        end = start + region*2
+        if end >= nLoci:
+            end = nLoci-1
+            start = end - region*2
+
+        combined[i] = forward[end] - forward[start]
+
+    return combined
+
+
+
+@jit(nopython=True, nogil=True) 
+def get_max_index(array) :
+    max_index = 0
+    max_value = array[0]
+    for i in range(1, len(array)):
+        if array[i] > max_value:
+            max_index = i
+            max_value = array[i]
+    return max_index

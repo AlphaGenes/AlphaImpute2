@@ -465,25 +465,33 @@ def createBWLibrary(haps):
     
 #     # print(zeroOccNext[:,:])
 
-# hapLib = [np.array([1, 0, 0, 0, 0, 0, 1], dtype = np.int8),  # 0 
-#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 1
-#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 2
-#           np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 3
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 4
-#           np.array([1, 1, 1, 0, 0, 0, 0], dtype = np.int8),  # 5
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 6
-#           np.array([1, 1, 1, 0, 1, 0, 0], dtype = np.int8),  # 7
-#           np.array([0, 0, 0, 1, 0, 0, 0], dtype = np.int8),  # 8
-#           np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),  # 9
-#           np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),  # 10
-#           np.array([1, 1, 0, 1, 0, 0, 0], dtype = np.int8),  # 11
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 12
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 13
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 14
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 15
-#           np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8)]  # 16
+example_bw_library = None
+def get_example_library():
+    global example_bw_library
+    if example_bw_library is None:
+        hapLib = [np.array([1, 0, 0, 0, 0, 0, 1], dtype = np.int8),  # 0 
+                  np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 1
+                  np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 2
+                  np.array([0, 1, 0, 0, 0, 1, 0], dtype = np.int8),  # 3
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 4
+                  np.array([1, 1, 1, 0, 0, 0, 0], dtype = np.int8),  # 5
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 6
+                  np.array([1, 1, 1, 0, 1, 0, 0], dtype = np.int8),  # 7
+                  np.array([0, 0, 0, 1, 0, 0, 0], dtype = np.int8),  # 8
+                  np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),  # 9
+                  np.array([0, 1, 1, 1, 0, 0, 0], dtype = np.int8),  # 10
+                  np.array([1, 1, 0, 1, 0, 0, 0], dtype = np.int8),  # 11
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 12
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 13
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 14
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8),  # 15
+                  np.array([0, 0, 1, 0, 1, 0, 0], dtype = np.int8)]  # 16
+        example_bw_library = BurrowsWheelerLibrary()
+        for hap in hapLib:
+            example_bw_library.append(hap)
+        example_bw_library.setup_library()
 
-# bwlib = BurrowsWheelerLibrary(hapLib)
+    return example_bw_library
 
 # # printSortAt(0, bwlib.library)
 # printSortAt(6, bwlib.library); print("")

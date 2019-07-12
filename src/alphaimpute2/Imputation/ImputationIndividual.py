@@ -80,6 +80,12 @@ class jit_Phasing_Individual(object):
         self.own_haplotypes = haplotypes_in
         self.has_own_haplotypes = True
 
+example_phasing_individual = None
+def get_example_phasing_individual():
+    global example_phasing_individual
+    if example_phasing_individual is None:
+        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), 2)
+    return example_phasing_individual
 
 spec = OrderedDict()
 spec['idn'] = int64
