@@ -4,6 +4,7 @@ from .tinyhouse import ProbMath
 
 from .Imputation import ProbPhasing
 from .Imputation import ParticlePhasing
+from .Imputation import ParticleImputation
 from .Imputation import Heuristic_Peeling
 from .Imputation import ImputationIndividual
 from .Imputation import Imputation
@@ -111,13 +112,20 @@ def main():
     setupImputation(pedigree)
 
     if args.phase:
-        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > .8]
+        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  == 1]
         print(len(hd_individuals), "Sent to phasing")
         ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, args)
-        # ProbPhasing.run_phaseHD(pedigree)
+        
+        library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
+
+        ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]
+        print(len(ld_individuals), "Sent to imputation")
+
+        ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library)
+
 
     # Run family based phasing.
-    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
+    # Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
 
     # Write out results
     startTime = datetime.datetime.now()

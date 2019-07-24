@@ -24,7 +24,7 @@ except:
 
 @time_func("Total phasing")
 @profile
-def create_library_and_phase(individuals, pedigree, args) :
+def create_library_and_phase(individuals, pedigree, args, final_phase = True) :
     # This function creates a haplotype library and phases individuals using the haplotype library.
 
     for ind in individuals:
@@ -33,7 +33,7 @@ def create_library_and_phase(individuals, pedigree, args) :
 
     for rep in range(5):
         phase_round(individuals, individual_exclusion = True, set_haplotypes = False)
-    
+        
     phase_round(individuals, individual_exclusion = True, set_haplotypes = True)
 
 
@@ -46,7 +46,7 @@ def phase_round(individuals, individual_exclusion = False, set_haplotypes = Fals
 
 @time_func("Creating BW library")
 @profile
-def get_reference_library(individuals, individual_exclusion = False):
+def get_reference_library(individuals, individual_exclusion = False, setup = True):
     # Construct a library, and add individuals to it.
     # If we are worried about an individual's haplotype being included in the reference library (i.e. because we are about to phase that individual)
     # Then use the individual_exclusion flag to make sure they don't use their own haplotype.
@@ -62,7 +62,8 @@ def get_reference_library(individuals, individual_exclusion = False):
                 haplotype_library.append(hap.copy())
 
     # Fills in missing data, runs the BW algorithm on the haplotypes, and sets exclusions.
-    haplotype_library.setup_library()
+    if setup:
+        haplotype_library.setup_library()
     return haplotype_library
 
 
@@ -94,24 +95,18 @@ def phase_group(individuals, haplotype_library, set_haplotypes):
 @jit(nopython=True, nogil=True) 
 def phase(ind, haplotype_library, set_haplotypes = False) :
     nLoci = len(ind.genotypes)
-    # pat_hap, mat_hap = sampler.get_haplotypes()
-    if set_haplotypes:
-        rate = 5/nLoci
-    else:
-        rate = 5/nLoci
-
-    samples = None
+    rate = 5/nLoci
 
     if set_haplotypes:
         n_samples = 40
     else:
         n_samples = 1
 
-    samples = Sample_container(haplotype_library, ind)
+    samples = PhasingSampleContainer(haplotype_library, ind)
     for i in range(n_samples):
         samples.add_sample(rate)
 
-    pat_hap, mat_hap = samples.get_consensus()
+    pat_hap, mat_hap = samples.get_consensus(400)
 
     if set_haplotypes:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
@@ -136,34 +131,133 @@ def add_haplotypes_to_ind(ind, pat_hap, mat_hap):
 ###
 
 spec = OrderedDict()
-spec['raw_genotypes'] = numba.int64[:]
+
+spec['start'] = numba.int64
+spec['stop'] = numba.int64
+spec['encoding_index'] = numba.int64
+spec['hap_range'] = numba.typeof((0,1))
+
+@jitclass(spec)
+class HaplotypeRange(object):
+    def __init__(self, start, stop, hap_range, encoding_index):
+        self.start = start
+        self.stop = stop
+
+        self.encoding_index = encoding_index
+        self.hap_range = hap_range
+
+example_haplotype_range = HaplotypeRange(0, 0, (0, 0), 0)
+
+spec = OrderedDict()
+
+spec['pat_ranges'] = numba.optional(numba.typeof([example_haplotype_range, example_haplotype_range])) # i.e. array of HaplotypeRanges
+spec['mat_ranges'] = numba.optional(numba.typeof([example_haplotype_range, example_haplotype_range])) # i.e. array of HaplotypeRanges
+spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
+
+@jitclass(spec)
+class HaplotypeInformation(object):
+    # All of this is in the context of a specific library.
+    def __init__(self, bw_library):
+        self.bw_library = bw_library
+        
+        self.pat_ranges = None    
+        self.mat_ranges = None    
+
+    def add_mat_sample(self, index, hap_range):
+
+        if self.mat_ranges is None:
+            start = 0
+        else:
+            start = self.mat_ranges[-1].stop # Start value is the previous stop value.
+
+        stop = index # The haplotype goes all the way up until the next index though.
+        encoding_loci = index # Encoded at the index.
+        new_range = HaplotypeRange(start, stop, hap_range, encoding_loci)  
+
+        if self.mat_ranges is None:
+            self.mat_ranges = [new_range]
+        else:
+            self.mat_ranges += [new_range]
+
+        
+    def add_pat_sample(self, index, hap_range):
+
+        if self.pat_ranges is None:
+            start = 0
+        else:
+            start = self.pat_ranges[-1].stop # Start value is the previous stop value.
+
+        stop = index # The haplotype goes all the way up until the next index though.
+        encoding_loci = index # Encoded at the index.
+        new_range = HaplotypeRange(start, stop, hap_range, encoding_loci)  
+
+        if self.pat_ranges is None:
+            self.pat_ranges = [new_range]
+        else:
+            self.pat_ranges += [new_range]
+
+    def get_global_bounds(self, index, hap):
+        if hap == 0:
+            ranges = self.pat_ranges
+        if hap == 1:
+            ranges = self.mat_ranges
+
+        # The 1 offset is because sub_start should be included in the previous range (and not the current range), and then we include sub_end in our current range.
+        global_start = self.bw_library.get_true_index(ranges[index].start)+1
+
+        # The 1 offset is because true_end should be included in the current range, and this is a python range so we need to go 1 further.
+        global_end = self.bw_library.get_true_index(ranges[index].stop)+1
+
+        if index == 0:
+            global_start = 0
+        if index == len(ranges) - 1:
+            global_end = self.bw_library.full_nLoci
+
+        return global_start, global_end
+
+
+    def convert_to_global_matrix(self, hap):
+        if hap == 0:
+            ranges = self.pat_ranges
+        if hap == 1:
+            ranges = self.mat_ranges
+
+        range_index = np.full(self.bw_library.full_nLoci, -1, dtype = np.int64)
+        residual_length = np.full(self.bw_library.full_nLoci, -1, dtype = np.int64)
+        
+
+
+
+
+spec = OrderedDict()
 spec['genotypes'] = numba.int8[:]
 spec['rec'] = numba.int64[:]
 
 spec['rate'] = numba.float32
-
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
-spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+
+tmp_info = HaplotypeInformation(BurrowsWheelerLibrary.get_example_library().library)
+spec['hap_info'] = numba.typeof(tmp_info)
 
 @jitclass(spec)
-class Sample(object):
+class PhasingSample(object):
 
     def __init__(self, rate):
         self.rate = rate
 
-    def sample(self, haplotype_library, ind):
-        self.raw_genotypes, rec = haplib_sample(haplotype_library, ind, self.rate)
-        self.haplotypes = self.get_haplotypes()
+    def sample(self, bw_library, ind):
+        raw_genotypes, rec, self.hap_info= haplib_sample(bw_library, ind, self.rate)
+        self.haplotypes = self.get_haplotypes(raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
         self.rec = rec
 
-    def get_haplotypes(self):
-        nLoci = len(self.raw_genotypes)
+    def get_haplotypes(self, raw_genotypes):
+        nLoci = len(raw_genotypes)
         pat_hap = np.full(nLoci, 9, dtype = np.int8)
         mat_hap = np.full(nLoci, 9, dtype = np.int8)
 
         for i in range(nLoci):
-            geno = self.raw_genotypes[i]
+            geno = raw_genotypes[i]
             if geno == 0:
                 pat_hap[i] = 0
                 mat_hap[i] = 0
@@ -200,80 +294,52 @@ def get_haplotypes(raw_genotypes):
             mat_hap[i] = 1
     return pat_hap, mat_hap
 
-spec = OrderedDict()
-spec['current_pat_index'] = numba.typeof([0])
-spec['current_mat_index'] = numba.typeof([0])
-spec['pat_ranges'] = numba.optional(numba.typeof([(0,1)])) # i.e. array of integer tuples
-spec['mat_ranges'] = numba.optional(numba.typeof([(0,1)])) # i.e. array of integer tuples
-
-@jitclass(spec)
-class HaplotypeInformation(object):
-    def __init__(self):
-        self.pat_indexes = [0]
-        self.mat_indexes = [0]
-        self.pat_ranges = None    
-        self.mat_ranges = None    
-
-    def add_mat_sample(self, index, value):
-        if self.mat_ranges is None:
-            self.mat_ranges = [value]
-        else:
-            self.mat_ranges += [values]
-
-        if index > -1:
-            self.mat_indexes += [index]
-
-    def add_pat_sample(self, index, value):
-        if self.pat_ranges is None:
-            self.pat_ranges = [value]
-        else:
-            self.pat_ranges += [values]
-
-        if index > -1:
-            self.pat_indexes += [index]
-
-
 @jit(nopython=True, nogil=True) 
-def haplib_sample(haplotype_library, ind, rate):
-    nHaps, nLoci = haplotype_library.a.shape
+def haplib_sample(bw_library, ind, rate):
+    hap_info = HaplotypeInformation(bw_library)
 
-    current_state = ((0, 1), (0, 1))
+    nHaps, nLoci = bw_library.a.shape
+
+    current_state = ((0, nHaps), (0, nHaps))
   
     genotypes = np.full(nLoci, 9, dtype = np.int64)
     rec = np.full(nLoci, 0, dtype = np.int64)
     values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
 
     for i in range(nLoci):
-        new_state, geno, rec[i] = sample_locus(current_state, i, haplotype_library, ind, values, rate)
+        new_state, geno, rec[i] = sample_locus(current_state, i, bw_library, ind, values, rate, hap_info)
         genotypes[i] = geno
         current_state = new_state
-    return genotypes, rec
-    # return genotypes, calculate_rec_distance(rec)
 
-# rec = np.array([0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1])
-# count_regional_rec(rec, 2)
+    # Add the final set of states
+    hap_info.add_pat_sample(nLoci-1, new_state[0])
+    hap_info.add_mat_sample(nLoci-1, new_state[1])
+
+    return genotypes, rec, hap_info
+
 
 @jit(nopython=True, nogil=True) 
-def sample_locus(current_states, index, haplotype_library, ind, values, rate):
+def sample_locus(current_states, index, bw_library, ind, values, rate, hap_info):
 
     # We want to do a couple of things. 
     # Of the current states, we want to work out which combinations will be produced at the next loci.
     # then work out probabilities.
-    nHaps, nLoci = haplotype_library.a.shape
+    true_index = bw_library.get_true_index(index)
+    nHaps, nLoci = bw_library.a.shape
 
     rec = rate
 
     if index != 0:
-        current_pat = haplotype_library.update_state(current_states[0], index)
-        current_mat = haplotype_library.update_state(current_states[1], index)
+        current_pat = bw_library.update_state(current_states[0], index)
+        current_mat = bw_library.update_state(current_states[1], index)
     else:
-        current_pat = haplotype_library.get_null_state(index)
-        current_mat = haplotype_library.get_null_state(index)
-    hap_lib = haplotype_library.get_null_state(index)
+        current_pat = bw_library.get_null_state(index)
+        current_mat = bw_library.get_null_state(index)
+    hap_lib = bw_library.get_null_state(index)
 
     exclusion = np.empty(0, dtype = np.int64)
     if ind.has_own_haplotypes:
-        exclusion = ind.own_haplotypes[:, index]
+        exclusion = ind.own_haplotypes[:, true_index]
 
     current_pat_counts = (count_haps(current_pat[0], exclusion), count_haps(current_pat[1], exclusion))
     current_mat_counts = (count_haps(current_mat[0], exclusion), count_haps(current_mat[1], exclusion))
@@ -292,7 +358,7 @@ def sample_locus(current_states, index, haplotype_library, ind, values, rate):
     for i in range(4):
         for j in range(4):
             # This is the individual's genotype probabilities. 
-            values[i,j] *= ind.penetrance[j,index]
+            values[i,j] *= ind.penetrance[j,true_index]
 
 
     # Zero index of new_value is recombination status, one index is resulting genotype.
@@ -308,6 +374,8 @@ def sample_locus(current_states, index, haplotype_library, ind, values, rate):
     else:
         # Paternal recombination
         pat_haps = hap_lib[pat_value]
+        if index > 0: 
+            hap_info.add_pat_sample(index-1, current_states[0])
 
     if new_value[0] == 0 or new_value[0] == 2:
         # No maternal recombination.
@@ -315,6 +383,8 @@ def sample_locus(current_states, index, haplotype_library, ind, values, rate):
     else:
         # maternal recombination
         mat_haps = hap_lib[mat_value]
+        if index > 0:
+            hap_info.add_mat_sample(index-1, current_states[1])
 
     rec = 0
     if new_value[0] == 1 or new_value[0] == 2:
@@ -409,27 +479,27 @@ def decode_genotype(geno):
 
 spec = OrderedDict()
 
-tmp = Sample(0.01)
+tmp = PhasingSample(0.01)
 spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
-spec['haplotype_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
+spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
 spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
 
 @jitclass(spec)
-class Sample_container(object):
-    def __init__(self, haplotype_library, ind):
+class PhasingSampleContainer(object):
+    def __init__(self, bw_library, ind):
         self.samples = None
-        self.haplotype_library = haplotype_library
+        self.bw_library = bw_library
         self.ind = ind
 
     def add_sample(self, rate):
-        new_sample = Sample(rate)
-        new_sample.sample(self.haplotype_library, self.ind)
+        new_sample = PhasingSample(rate)
+        new_sample.sample(self.bw_library, self.ind)
         if self.samples is None:
             self.samples = [new_sample]
         else:
             self.samples += [new_sample]
 
-    def get_consensus(self):
+    def get_consensus(self, sample_size):
         if len(self.samples) == 1:
             return self.samples[0].haplotypes
 
@@ -444,7 +514,7 @@ class Sample_container(object):
 
         rec_scores = np.full((nHaps, nLoci), 0,  dtype = np.int64)
         for i in range(nHaps):
-            rec_scores[i, :] = count_regional_rec(self.samples[i].rec, 50)
+            rec_scores[i, :] = count_regional_rec(self.samples[i].rec, sample_size)
 
         genotypes = self.get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores)
         return self.get_consensus_haplotype(haplotypes, genotypes)
