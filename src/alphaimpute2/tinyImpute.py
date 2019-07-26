@@ -112,7 +112,7 @@ def main():
     setupImputation(pedigree)
 
     if args.phase:
-        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  == 1]
+        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > .6]
         print(len(hd_individuals), "Sent to phasing")
         ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, args)
         

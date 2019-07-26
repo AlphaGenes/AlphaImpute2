@@ -11,7 +11,7 @@ from itertools import repeat
 from . import BurrowsWheelerLibrary
 from . import Imputation
 from . import ImputationIndividual
-from . import ParticlePhasing
+from . import PhasingObjects
 
 from ..tinyhouse.Utils import time_func
 from ..tinyhouse import InputOutput
@@ -62,13 +62,13 @@ def get_loci(individuals, threshold):
 def impute(ind, bw_library) :
     rate = 1/bw_library.nLoci
 
-    samples = ParticlePhasing.PhasingSampleContainer(bw_library, ind)
+    samples = PhasingObjects.PhasingSampleContainer(bw_library, ind)
     for i in range(100):
         samples.add_sample(rate)
 
     converted_samples = [expand_sample(ind, sample, bw_library) for sample in samples.samples]
 
-    sample_container = ParticlePhasing.PhasingSampleContainer(bw_library, ind)
+    sample_container = PhasingObjects.PhasingSampleContainer(bw_library, ind)
     sample_container.samples = converted_samples
 
     pat_hap, mat_hap = sample_container.get_consensus(50)
@@ -120,7 +120,7 @@ def expand_sample(ind, sample, bw_library):
         haplotype_index = bw_library.a[bw_index, encoding_index]
         mat_hap[global_start:global_stop] = bw_library.full_haps[haplotype_index, global_start:global_stop]
 
-    new_sample = ParticlePhasing.PhasingSample(sample.rate)
+    new_sample = PhasingObjects.PhasingSample(sample.rate)
     new_sample.haplotypes = (pat_hap, mat_hap)
     new_sample.genotypes = pat_hap +  mat_hap
 
