@@ -1,5 +1,8 @@
+import numba
+from numba import jit, int8, int64, boolean, optional, jitclass, float32
+from collections import OrderedDict
 import numpy as np
-from numba import jit, float32
+
 
 import concurrent.futures
 from itertools import repeat
@@ -52,7 +55,7 @@ def pedigreeRecombEstimate(pedigree, args, cutoff):
 
         if args.maxthreads <= 1:
             for family in generation.families:
-                set_recombination_estimates_family(family, cutoff, repeat(args.length))
+                set_recombination_estimates_family(family, cutoff, args.length)
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
                 executor.map(set_recombination_estimates_family, generation.families, repeat(cutoff), repeat(args.length))
@@ -63,12 +66,12 @@ def set_recombination_estimates_family(family, cutoff, map_length):
     sire = family.sire.peeling_view
     dam = family.dam.peeling_view
     offspring = [ind.peeling_view for ind in family.offspring]
-    set_segregation_peel_down_jit(sire, dam, offspring, cutoff, map_length)
+    set_recombination_estimates_family_jit(sire, dam, offspring, cutoff, map_length)
 
 @jit(nopython=True, nogil = True)
 def set_recombination_estimates_family_jit(sire, dam, offspring, cutoff, map_length):
     nLoci = len(sire.genotypes)
-    transmissionRate = jit_recombScore(map_length/nLoci)
+    recombScore = jit_recombScore(map_length/nLoci)
 
     nOffspring = len(offspring)
     for child in offspring:
@@ -77,7 +80,7 @@ def set_recombination_estimates_family_jit(sire, dam, offspring, cutoff, map_len
 
     nOffspring = len(offspring)
     for child in offspring:
-        estimateLocusRecombination(child, sire, dam)
+        set_recombination_estimates(child, sire, dam, recombScore, map_length)
 
 
 
@@ -85,7 +88,7 @@ spec = OrderedDict()
 spec['score'] = float32[:,:]
 spec['score_mat'] = float32[:,:]
 spec['score_pat'] = float32[:,:]
-spec['mat'] = float32[:,:,:]
+spec['mat'] = float32[:,:]
 
 @jitclass(spec)
 class jit_recombScore(object):
@@ -105,28 +108,27 @@ class jit_recombScore(object):
                           [1, 0, 1, 0],
                           [0, 1, 0, 1],
                           [1, 0, 1, 0]], dtype = np.float32)
-        self.mat = np.full((len(transmissionRate), 4, 4), 0, dtype = np.float32)
-        for i in range(len(transmissionRate)):
-            e = transmissionRate[i]
-            self.mat[i,:,:] = np.array([[(1-e)**2,  (1-e)*e,    (1-e)*e,    e**2],
-                                [(1-e)*e,   (1-e)**2,   e**2,       (1-e)*e],
-                                [(1-e)*e,   e**2,       (1-e)**2,   (1-e)*e],
-                                [e**2,      (1-e)*e,    (1-e)*e,    (1-e)**2]])
+        self.mat = np.full((4, 4), 0, dtype = np.float32)
+        e = transmissionRate
+        self.mat[:,:] = np.array([[(1-e)**2,  (1-e)*e,    (1-e)*e,    e**2],
+                            [(1-e)*e,   (1-e)**2,   e**2,       (1-e)*e],
+                            [(1-e)*e,   e**2,       (1-e)**2,   (1-e)*e],
+                            [e**2,      (1-e)*e,    (1-e)*e,    (1-e)**2]])
 
 
 
 @jit(nopython=True, nogil = True)
-def set_recombination_estimates(ind, sire, dam, recombScore):
+def set_recombination_estimates(ind, sire, dam, recombScore, map_length):
 
     nLoci = len(ind.genotypes)
 
     pointEstimates = np.full((4, nLoci), 1, dtype = np.float32)
     fillPointEstimates(pointEstimates, ind, sire, dam)
 
-    smoothedEstimates, forwardSeg, backwardSeg = smoothPointSeg(pointEstimates, 1.0/nLoci) # This is where different map lengths could be added.
+    smoothedEstimates, forwardSeg, backwardSeg = smoothPointSeg(pointEstimates, map_length/nLoci)
 
     for i in range(nLoci -1):
-        ind.recomb[i], ind.recomb_mat[i], ind.recomb_pat[i] = estimateLocusRecombination(pointSeg, forwardSeg, backwardSeg, recombScore, i)
+        ind.recomb[i], ind.recomb_mat[i], ind.recomb_pat[i] = estimateLocusRecombination(pointEstimates, forwardSeg, backwardSeg, recombScore, i)
 
 
 
@@ -151,7 +153,7 @@ def estimateLocusRecombination(pointSeg, forwardSeg, backwardSeg, recombScore, l
     mat = np.full((4, 4), 0, dtype = np.float32)
     for i in range(4):
         for j in range(4):
-            mat[i,j] = recombScore.mat[locus,i,j]
+            mat[i,j] = recombScore.mat[i,j]
 
 
     # Now create joint probabilities.

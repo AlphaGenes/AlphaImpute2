@@ -5,6 +5,7 @@ from .tinyhouse import ProbMath
 from .Imputation import ProbPhasing
 from .Imputation import ParticlePhasing
 from .Imputation import Heuristic_Peeling
+from .Imputation import RecombEstimation
 from .Imputation import ImputationIndividual
 from .Imputation import Imputation
 
@@ -87,17 +88,10 @@ def writeOutResults(pedigree, args):
         pedigree.writeGenotypes(args.out + ".genotypes")
         pedigree.writePhase(args.out + ".phase")
         
-        # for ind in pedigree:
-        #     ind.peeling_view.setGenotypesPenetrance(.1)
-        # pedigree.writeGenotypes(args.out + ".penetrance")
-
-        # for ind in pedigree:
-        #     ind.peeling_view.setGenotypesFromPeelingData(True, False, False, .1)
-
-        # pedigree.writeGenotypes(args.out + ".anterior")
-
-        # pedigree.writeSegregation(args.out + ".seg.0", 0)
-        # pedigree.writeSegregation(args.out + ".seg.1", 1)
+        with open(args.out + ".recomb", 'w+') as f:
+            for ind in pedigree:
+                values = ind.peeling_view.recomb
+                pedigree.writeLine(f, ind.idx, values, "{:.4f}".format)
 
 
 @profile
@@ -119,6 +113,8 @@ def main():
 
     # Run family based phasing.
     Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .8)
+
+    RecombEstimation.pedigreeRecombEstimate(pedigree, args, cutoff = .9)
 
     # Write out results
     startTime = datetime.datetime.now()
