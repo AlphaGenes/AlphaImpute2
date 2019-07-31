@@ -337,6 +337,7 @@ def setSegregation(ind, sire, dam):
     # Then set the segregation values for the individual.
     ind.segregation[0][:] = smoothedEstimates[2, :] + smoothedEstimates[3,:]
     ind.segregation[1][:] = smoothedEstimates[1, :] + smoothedEstimates[3,:]
+    
 
 
 @jit(nopython=True, nogil = True)
@@ -420,6 +421,7 @@ def smoothPointSeg(pointSeg, transmission):
 
     # Seg is the output, and is a copy of pointseg.
     seg = np.full(pointSeg.shape, .25, dtype = np.float32)
+
     for i in range(nLoci):
         for j in range(4):
             seg[j,i] = pointSeg[j,i]
@@ -453,6 +455,7 @@ def smoothPointSeg(pointSeg, transmission):
 
         for j in range(4):
             seg[j,i] *= new[j]
+
         prev = new
 
     prev = np.full((4), .25, dtype = np.float32)
@@ -470,13 +473,13 @@ def smoothPointSeg(pointSeg, transmission):
 
         for j in range(4):
             seg[j,i] *= new[j]
+
         prev = new
     
     for i in range(nLoci):
         norm_1D(seg[:,i])
 
-    return(seg)
-
+    return seg
 
 ############
 #
@@ -491,6 +494,16 @@ def norm_1D(mat):
         total += mat[i]
     for i in range(len(mat)):
         mat[i] /= total
+
+@jit(nopython=True, nogil=True)
+def norm_2D(values) :
+    count = 0
+    for i in range(4):
+        for j in range(4):
+            count += values[i, j]
+    for i in range(4):
+        for j in range(4):
+            values[i,j] /= count
 
 
 @jit(nopython=True, nogil = True)

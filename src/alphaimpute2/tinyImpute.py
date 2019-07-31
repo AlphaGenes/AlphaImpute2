@@ -73,6 +73,7 @@ def getArgs() :
 
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
+    core_impute_parser.add_argument('-length', default=1.0, required=False, type=float, help='Estimated length of the chromosome in Morgansa. [Default 1.00]')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 

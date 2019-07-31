@@ -98,6 +98,12 @@ spec['penetrance'] = float32[:,:]
 spec['posterior'] = float32[:,:]
 spec['genotypeProbabilities'] = float32[:,:]
 
+spec['recomb'] = float32[:]
+spec['recomb_mat'] = float32[:]
+spec['recomb_pat'] = float32[:]
+
+
+
 spec['currentState'] = int8
 spec['currentCutoff'] = float32
 
@@ -121,6 +127,9 @@ class jit_Peeling_Individual(object):
         self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
         self.genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
 
+        self.recomb = np.full(nLoci, 0, dtype = np.float32)
+        self.recomb_mat = np.full(nLoci, 0, dtype = np.float32)
+        self.recomb_pat = np.full(nLoci, 0, dtype = np.float32)
 
         # Create the posterior terms.
         self.has_offspring = has_offspring
