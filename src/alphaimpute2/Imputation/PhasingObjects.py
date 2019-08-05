@@ -379,8 +379,7 @@ def get_haps_probs(values, pat_haps, mat_haps, scale):
 
 @jit(nopython=True, nogil=True) 
 def weighted_sample_2D(mat):
-    # total = np.sum(mat)
-    
+    # Get sum of values    
     total = 0
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
@@ -395,6 +394,23 @@ def weighted_sample_2D(mat):
 
 
     return (0,0), total
+
+
+@jit(nopython=True, nogil=True) 
+def weighted_sample_1D(mat):
+    # Get sum of values    
+    total = 0
+    for i in range(mat.shape[0]):
+        total += mat[i]
+    value = random.random()*total
+
+    # Select value
+    for i in range(mat.shape[0]):
+        value -= mat[i]
+        if value < 0:
+            return i
+
+    return -1
 
 
 @jit(nopython=True, nogil=True) 
