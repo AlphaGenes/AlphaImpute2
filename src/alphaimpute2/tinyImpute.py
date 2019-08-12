@@ -69,6 +69,8 @@ def getArgs() :
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
     
     core_impute_parser.add_argument('-phase', action='store_true', required=False, help='Flag to run the phasing algorithm.')
+    core_impute_parser.add_argument('-popimpute', action='store_true', required=False, help='Flag to run the phasing algorithm.')
+    core_impute_parser.add_argument('-pedimpute', action='store_true', required=False, help='Flag to run the phasing algorithm.')
    
 
 
@@ -106,7 +108,10 @@ def main():
     # Set up arguments and pedigree
     args = getArgs()
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
+    
+    startTime = datetime.datetime.now()
     InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
+    print("Readin", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 
     # Fill in haplotypes and phase
     setupImputation(pedigree)
@@ -116,16 +121,18 @@ def main():
         print(len(hd_individuals), "Sent to phasing")
         ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, args)
         
-        library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
+        if args.popimpute:
+            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
 
-        ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]
-        print(len(ld_individuals), "Sent to imputation")
+            ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]
+            print(len(ld_individuals), "Sent to imputation")
 
-        ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library)
+            ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library)
 
 
     # Run family based phasing.
-    # Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
+    if args.pedimpute:
+        Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
 
     # Write out results
     startTime = datetime.datetime.now()

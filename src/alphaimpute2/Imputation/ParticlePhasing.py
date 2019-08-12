@@ -36,7 +36,11 @@ def create_library_and_phase(individuals, pedigree, args, final_phase = True) :
 
     for rep in range(5):
         phase_round(individuals, individual_exclusion = True, set_haplotypes = False)
-        
+    
+    # Second round of genotype calling
+    for ind in individuals:
+        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
+       
     phase_round(individuals, individual_exclusion = True, set_haplotypes = True)
 
 
