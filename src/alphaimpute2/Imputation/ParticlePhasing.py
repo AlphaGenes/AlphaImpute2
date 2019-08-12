@@ -32,7 +32,7 @@ def create_library_and_phase(individuals, pedigree, args, final_phase = True) :
 
     for ind in individuals:
         # We never call genotypes so can do this once.
-        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0)
+        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
     for rep in range(5):
         phase_round(individuals, individual_exclusion = True, set_haplotypes = False)
@@ -107,12 +107,14 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
 
     if set_haplotypes:
         n_samples = 40
+        error_rate = 0.01
     else:
-        n_samples = 1
+        error_rate = 0.01
+        n_samples = 40
 
     samples = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
     for i in range(n_samples):
-        samples.add_sample(rate)
+        samples.add_sample(rate, error_rate)
 
 
     if n_samples == 1:

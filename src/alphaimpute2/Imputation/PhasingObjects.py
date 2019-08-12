@@ -163,9 +163,10 @@ class HaplotypeInformation(object):
 
 spec = OrderedDict()
 spec['genotypes'] = numba.int8[:]
-spec['rec'] = numba.int64[:]
+spec['rec'] = numba.float32[:]
 
 spec['rate'] = numba.float32
+spec['error_rate'] = numba.float32
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
 tmp_info = HaplotypeInformation(BurrowsWheelerLibrary.get_example_library().library)
@@ -174,11 +175,12 @@ spec['hap_info'] = numba.typeof(tmp_info)
 @jitclass(spec)
 class PhasingSample(object):
 
-    def __init__(self, rate):
+    def __init__(self, rate, error_rate):
         self.rate = rate
+        self.error_rate = error_rate
 
     def sample(self, bw_library, ind):
-        raw_genotypes, rec, self.hap_info= haplib_sample(bw_library, ind, self.rate)
+        raw_genotypes, rec, self.hap_info= haplib_sample(bw_library, ind, self.rate, self.error_rate)
         self.haplotypes = self.get_haplotypes(raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
         self.rec = rec
@@ -227,7 +229,7 @@ def get_haplotypes(raw_genotypes):
     return pat_hap, mat_hap
 
 @jit(nopython=True, nogil=True) 
-def haplib_sample(bw_library, ind, rate):
+def haplib_sample(bw_library, ind, rate, error_rate):
     hap_info = HaplotypeInformation(bw_library)
 
     nHaps, nLoci = bw_library.a.shape
@@ -235,11 +237,11 @@ def haplib_sample(bw_library, ind, rate):
     current_state = ((0, nHaps), (0, nHaps))
   
     genotypes = np.full(nLoci, 9, dtype = np.int64)
-    rec = np.full(nLoci, 0, dtype = np.int64)
+    rec = np.full(nLoci, 0, dtype = np.float32)
     values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
 
     for i in range(nLoci):
-        new_state, geno, rec[i] = sample_locus(current_state, i, bw_library, ind, values, rate, hap_info)
+        new_state, geno, rec[i] = sample_locus(current_state, i, bw_library, ind, values, rate, error_rate, hap_info)
         genotypes[i] = geno
         current_state = new_state
 
@@ -251,15 +253,13 @@ def haplib_sample(bw_library, ind, rate):
 
 
 @jit(nopython=True, nogil=True) 
-def sample_locus(current_states, index, bw_library, ind, values, rate, hap_info):
+def sample_locus(current_states, index, bw_library, ind, values, rec_rate, error_rate, hap_info):
 
     # We want to do a couple of things. 
     # Of the current states, we want to work out which combinations will be produced at the next loci.
     # then work out probabilities.
     true_index = bw_library.get_true_index(index)
     nHaps, nLoci = bw_library.a.shape
-
-    rec = rate
 
     if index != 0:
         current_pat = bw_library.update_state(current_states[0], index)
@@ -282,10 +282,10 @@ def sample_locus(current_states, index, bw_library, ind, values, rate, hap_info)
     # # Recombination ordering. Could do 2 x 2 I guess...
     # # nn, nr, rn, rr
 
-    get_haps_probs(values[0,:], current_pat_counts, current_mat_counts,  (1-rec)*(1-rec))
-    get_haps_probs(values[1,:], current_pat_counts, hap_lib_counts, (1-rec)*rec)  
-    get_haps_probs(values[2,:], hap_lib_counts, current_mat_counts, rec*(1-rec))
-    get_haps_probs(values[3,:], hap_lib_counts, hap_lib_counts, rec*rec) 
+    get_haps_probs(values[0,:], current_pat_counts, current_mat_counts,  (1-rec_rate)*(1-rec_rate))
+    get_haps_probs(values[1,:], current_pat_counts, hap_lib_counts, (1-rec_rate)*rec_rate)  
+    get_haps_probs(values[2,:], hap_lib_counts, current_mat_counts, rec_rate*(1-rec_rate))
+    get_haps_probs(values[3,:], hap_lib_counts, hap_lib_counts, rec_rate*rec_rate) 
 
     for i in range(4):
         for j in range(4):
@@ -297,11 +297,37 @@ def sample_locus(current_states, index, bw_library, ind, values, rate, hap_info)
     
     new_value, value_sum = weighted_sample_2D(values)
 
+    score = 0
+
+    match_score = np.log(1-error_rate)
+    no_match_score = np.log(error_rate)
+    
+    observed_genotype = ind.genotypes[true_index]
+    selected_genotype = new_value[1]
+    if observed_genotype != 9:
+        if observed_genotype == 0:
+            if selected_genotype == 0:
+                score -= match_score
+            else:
+                score -= no_match_score
+
+        if observed_genotype == 1:
+            if selected_genotype == 1 or selected_genotype == 2:
+                score -= match_score
+            else:
+                score -= no_match_score
+
+        if observed_genotype == 2:
+            if selected_genotype == 3:
+                score -= match_score
+            else:
+                score -= no_match_score
+
+
     if value_sum == 0:
         new_state = current_states
-        rec = 0
         geno = np.argmax(ind.penetrance[:,true_index])
-
+        score -= 2*np.log(1-rec_rate) # We search for lowest score
     else:
 
         geno = new_value[1]
@@ -325,17 +351,18 @@ def sample_locus(current_states, index, bw_library, ind, values, rate, hap_info)
             if index > 0:
                 hap_info.add_mat_sample(index-1, current_states[1])
 
-        rec = 0
+       
         if new_value[0] == 1 or new_value[0] == 2:
-            rec = 1
+            score -= np.log(rec_rate) + np.log(1-rec_rate) # We search for lowest score
+        
         if new_value[0] == 3:
-            rec = 2
+            score -= 2*np.log(rec_rate) # We search for lowest score
 
         new_state = (pat_haps, mat_haps)
 
     # print(self.ind.idx, new_state)
 
-    return new_state, geno, rec        
+    return new_state, geno, score        
 
 @jit(nopython = True)
 def count_haps(haplotypes, exclusion):
@@ -434,7 +461,7 @@ def decode_genotype(geno):
 
 spec = OrderedDict()
 
-tmp = PhasingSample(0.01)
+tmp = PhasingSample(0.01, 0.01)
 spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
 spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
 spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
@@ -446,8 +473,8 @@ class PhasingSampleContainer(object):
         self.bw_library = bw_library
         self.ind = ind
 
-    def add_sample(self, rate):
-        new_sample = PhasingSample(rate)
+    def add_sample(self, rate, error_rate):
+        new_sample = PhasingSample(rate, error_rate)
         new_sample.sample(self.bw_library, self.ind)
         if self.samples is None:
             self.samples = [new_sample]
@@ -580,44 +607,44 @@ class PhasingSampleContainer(object):
         return genotypes
 
 
-@jit(nopython=True, nogil=True) 
-def calculate_rec_distance(rec):
-    nLoci = len(rec)
-    forward = np.full(nLoci, 0, dtype = np.int64)
-    backward = np.full(nLoci, 0, dtype = np.int64)
+# @jit(nopython=True, nogil=True) 
+# def calculate_rec_distance(rec):
+#     nLoci = len(rec)
+#     forward = np.full(nLoci, 0, dtype = np.int64)
+#     backward = np.full(nLoci, 0, dtype = np.int64)
     
-    count = nLoci + 1
-    for i in range(nLoci):
-        count += 1
-        if rec[i] >= 1:
-            count = 0
-        forward[i] = count
+#     count = nLoci + 1
+#     for i in range(nLoci):
+#         count += 1
+#         if rec[i] >= 1:
+#             count = 0
+#         forward[i] = count
 
-    count = nLoci + 1
-    for i in range(nLoci-1, -1, -1):
-        count += 1
-        if rec[i] >= 1:
-            count = 0
-        backward[i] = count
+#     count = nLoci + 1
+#     for i in range(nLoci-1, -1, -1):
+#         count += 1
+#         if rec[i] >= 1:
+#             count = 0
+#         backward[i] = count
 
-    combined = np.full(nLoci, 0, dtype = np.int64)
-    for i in range(nLoci):
-        combined[i] = min(forward[i], backward[i])
+#     combined = np.full(nLoci, 0, dtype = np.int64)
+#     for i in range(nLoci):
+#         combined[i] = min(forward[i], backward[i])
 
-    return combined
+#     return combined
 
 
 @jit(nopython=True, nogil=True) 
 def count_regional_rec(rec, region = 25):
     nLoci = len(rec)
-    forward = np.full(nLoci, 0, dtype = np.int64)
+    forward = np.full(nLoci, 0, dtype = np.float32)
  
     count = nLoci + 1
     for i in range(nLoci):
         count += rec[i]
         forward[i] = count
 
-    combined = np.full(nLoci, 0, dtype = np.int64)
+    combined = np.full(nLoci, 0, dtype = np.float32)
     for i in range(nLoci):
         start = max(0, i - region)
         end = start + region*2
