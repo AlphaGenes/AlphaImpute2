@@ -104,6 +104,7 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
     nLoci = len(ind.genotypes)
     rate = 5/nLoci
 
+
     if set_haplotypes:
         n_samples = 40
     else:
