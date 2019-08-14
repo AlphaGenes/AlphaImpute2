@@ -127,7 +127,7 @@ def collapse_and_call(ind, rev_ind):
     ind.phasing_view.backward = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
     ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
-    combined = ind.phasing_view.backward + ind.phasing_view.forward + np.log(ind.phasing_view.penetrance)
+    combined = np.log(ind.phasing_view.backward) + np.log(ind.phasing_view.forward) + np.log(ind.phasing_view.penetrance)
 
     Heuristic_Peeling.exp_2D_norm(combined, combined)
     ind.phasing_view.called_genotypes = call_genotypes(combined)

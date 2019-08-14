@@ -134,7 +134,6 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
         ind.forward[:,:] = 0
         for sample in samples.samples:
             ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
-        ind.forward = np.log(ind.forward)
 
     else:
         ind.current_haplotypes[0][:] = pat_hap

@@ -58,7 +58,7 @@ def get_loci(individuals, threshold):
 
     return loci
 
-# @jit(nopython=True)
+@jit(nopython=True)
 def impute(ind, bw_library) :
     rate = 1/bw_library.nLoci
 
@@ -73,10 +73,11 @@ def impute(ind, bw_library) :
 
     pat_hap, mat_hap = sample_container.get_consensus(50)
     
-    ind.forward[:,:] = 0
-    for sample in samples.samples:
-        ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
-    ind.forward = np.log(ind.forward)
+    # We only set a very small set of loci with the forward_geno_probs, and so need to just update our estimates of those loci and keep the rest at a neutral value.
+    for index in bw_library.loci:
+        ind.forward[:, index] = 0
+        for sample in samples.samples:
+            ind.forward[:, index] += sample.forward.forward_geno_probs[:, index] # We're really just averaging over particles. 
 
     add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 
