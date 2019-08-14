@@ -53,7 +53,7 @@ def phase_round(individuals, individual_exclusion = False, set_haplotypes = Fals
 
 @time_func("Creating BW library")
 @profile
-def get_reference_library(individuals, individual_exclusion = False, setup = True):
+def get_reference_library(individuals, individual_exclusion = False, setup = True, reverse = False):
     # Construct a library, and add individuals to it.
     # If we are worried about an individual's haplotype being included in the reference library (i.e. because we are about to phase that individual)
     # Then use the individual_exclusion flag to make sure they don't use their own haplotype.
@@ -63,10 +63,15 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
     for ind in individuals:
         for hap in ind.phasing_view.current_haplotypes:
             # Unless set to something else, ind.current_haplotypes tracks ind.haplotypes.
-            if individual_exclusion:
-                haplotype_library.append(hap.copy(), ind)
+            if reverse:
+                new_hap = np.ascontiguousarray(np.flip(hap))
             else:
-                haplotype_library.append(hap.copy())
+                new_hap = np.ascontiguousarray(hap.copy())
+
+            if individual_exclusion:
+                haplotype_library.append(new_hap, ind)
+            else:
+                haplotype_library.append(new_hap)
 
     # Fills in missing data, runs the BW algorithm on the haplotypes, and sets exclusions.
     if setup:
@@ -125,6 +130,12 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
 
     if set_haplotypes:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+
+        ind.forward[:,:] = 0
+        for sample in samples.samples:
+            ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
+        ind.forward = np.log(ind.forward)
+
     else:
         ind.current_haplotypes[0][:] = pat_hap
         ind.current_haplotypes[1][:] = mat_hap

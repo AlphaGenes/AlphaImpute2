@@ -162,6 +162,24 @@ class HaplotypeInformation(object):
 
 
 spec = OrderedDict()
+
+# These hold the paternal and maternal ranges of a haplotype at a specific loci.
+spec['pat_ranges'] = numba.int64[:,:] # 2 x n
+spec['mat_ranges'] = numba.int64[:,:]
+
+# These hold the forward genotype probabilities at a specific loci.
+spec['forward_geno_probs'] = numba.float32[:,:]
+
+@jitclass(spec)
+class ForwardHaplotype(object):
+    # All of this is in the context of a specific library.
+    def __init__(self, nLoci, full_nLoci):
+        self.pat_ranges = np.full((2, nLoci), 0, dtype = np.int64)    
+        self.mat_ranges = np.full((2, nLoci), 0, dtype = np.int64)    
+
+        self.forward_geno_probs = np.full((4, full_nLoci), 1, dtype = np.float32)
+
+spec = OrderedDict()
 spec['genotypes'] = numba.int8[:]
 spec['rec'] = numba.float32[:]
 
@@ -172,6 +190,9 @@ spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([
 tmp_info = HaplotypeInformation(BurrowsWheelerLibrary.get_example_library().library)
 spec['hap_info'] = numba.typeof(tmp_info)
 
+tmp_forward = ForwardHaplotype(10, 100)
+spec['forward'] = numba.typeof(tmp_forward)
+
 @jitclass(spec)
 class PhasingSample(object):
 
@@ -180,7 +201,7 @@ class PhasingSample(object):
         self.error_rate = error_rate
 
     def sample(self, bw_library, ind):
-        raw_genotypes, rec, self.hap_info= haplib_sample(bw_library, ind, self.rate, self.error_rate)
+        raw_genotypes, rec, self.hap_info= self.haplib_sample(bw_library, ind, self.rate, self.error_rate)
         self.haplotypes = self.get_haplotypes(raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
         self.rec = rec
@@ -206,6 +227,175 @@ class PhasingSample(object):
                 mat_hap[i] = 1
         return pat_hap, mat_hap
 
+
+    # @jit(nopython=True, nogil=True) 
+    def haplib_sample(self, bw_library, ind, rate, error_rate):
+        hap_info = HaplotypeInformation(bw_library)
+        nHaps, nLoci = bw_library.a.shape
+
+
+        self.forward = ForwardHaplotype(nLoci, bw_library.full_nLoci)
+
+        current_state = ((0, nHaps), (0, nHaps))
+      
+        genotypes = np.full(nLoci, 9, dtype = np.int64)
+        rec = np.full(nLoci, 0, dtype = np.float32)
+        values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
+
+        for i in range(nLoci):
+            new_state, geno, rec[i] = self.sample_locus(current_state, i, bw_library, ind, values, rate, error_rate, hap_info)
+            genotypes[i] = geno
+            current_state = new_state
+
+            self.forward.pat_ranges[0, i] = current_state[0][0]
+            self.forward.pat_ranges[1, i] = current_state[0][1]
+
+            self.forward.mat_ranges[0, i] = current_state[1][0]
+            self.forward.mat_ranges[1, i] = current_state[1][1]
+
+
+        # Add the final set of states
+        hap_info.add_pat_sample(nLoci-1, new_state[0])
+        hap_info.add_mat_sample(nLoci-1, new_state[1])
+       
+        return genotypes, rec, hap_info
+
+
+    # @jit(nopython=True, nogil=True) 
+    def sample_locus(self, current_states, index, bw_library, ind, values, rec_rate, error_rate, hap_info):
+
+        # We want to do a couple of things. 
+        # Of the current states, we want to work out which combinations will be produced at the next loci.
+        # then work out probabilities.
+        true_index = bw_library.get_true_index(index)
+        nHaps, nLoci = bw_library.a.shape
+
+        if index != 0:
+            current_pat = bw_library.update_state(current_states[0], index)
+            current_mat = bw_library.update_state(current_states[1], index)
+        else:
+            current_pat = bw_library.get_null_state(index)
+            current_mat = bw_library.get_null_state(index)
+        hap_lib = bw_library.get_null_state(index)
+
+        exclusion = np.empty(0, dtype = np.int64)
+        if ind.has_own_haplotypes:
+            exclusion = ind.own_haplotypes[:, true_index]
+
+        current_pat_counts = (count_haps(current_pat[0], exclusion), count_haps(current_pat[1], exclusion))
+        current_mat_counts = (count_haps(current_mat[0], exclusion), count_haps(current_mat[1], exclusion))
+        
+        hap_lib_counts = (count_haps(hap_lib[0], exclusion), count_haps(hap_lib[1], exclusion))
+        
+
+        # # Recombination ordering. Could do 2 x 2 I guess...
+        # # nn, nr, rn, rr
+
+        get_haps_probs(values[0,:], current_pat_counts, current_mat_counts,  (1-rec_rate)*(1-rec_rate))
+        get_haps_probs(values[1,:], current_pat_counts, hap_lib_counts, (1-rec_rate)*rec_rate)  
+        get_haps_probs(values[2,:], hap_lib_counts, current_mat_counts, rec_rate*(1-rec_rate))
+        get_haps_probs(values[3,:], hap_lib_counts, hap_lib_counts, rec_rate*rec_rate) 
+
+        calculate_forward_geno_probs(values, self.forward.forward_geno_probs[:,true_index])
+
+        for i in range(4):
+            for j in range(4):
+                # This is the individual's genotype probabilities. 
+                values[i,j] *= ind.penetrance[j,true_index] * ind.backward[j, true_index]
+
+
+        # Zero index of new_value is recombination status, one index is resulting genotype.
+        
+        new_value, value_sum = weighted_sample_2D(values)
+
+        score = 0
+
+        match_score = np.log(1-error_rate)
+        no_match_score = np.log(error_rate)
+        
+        observed_genotype = ind.genotypes[true_index]
+        selected_genotype = new_value[1]
+        if observed_genotype != 9:
+            if observed_genotype == 0:
+                if selected_genotype == 0:
+                    score -= match_score
+                else:
+                    score -= no_match_score
+
+            if observed_genotype == 1:
+                if selected_genotype == 1 or selected_genotype == 2:
+                    score -= match_score
+                else:
+                    score -= no_match_score
+
+            if observed_genotype == 2:
+                if selected_genotype == 3:
+                    score -= match_score
+                else:
+                    score -= no_match_score
+
+
+        if value_sum == 0:
+            new_state = current_states
+            geno = np.argmax(ind.penetrance[:,true_index])
+            score -= 2*np.log(1-rec_rate) # We search for lowest score
+        else:
+
+            geno = new_value[1]
+            pat_value, mat_value = decode_genotype(new_value[1]) # Split out the genotype value into pat/mat states
+
+            if new_value[0] == 0 or new_value[0] == 1:
+                # No paternal recombination.
+                pat_haps = current_pat[pat_value]
+            else:
+                # Paternal recombination
+                pat_haps = hap_lib[pat_value]
+                if index > 0: 
+                    hap_info.add_pat_sample(index-1, current_states[0])
+
+            if new_value[0] == 0 or new_value[0] == 2:
+                # No maternal recombination.
+                mat_haps = current_mat[mat_value]
+            else:
+                # maternal recombination
+                mat_haps = hap_lib[mat_value]
+                if index > 0:
+                    hap_info.add_mat_sample(index-1, current_states[1])
+
+           
+            if new_value[0] == 1 or new_value[0] == 2:
+                score -= np.log(rec_rate) + np.log(1-rec_rate) # We search for lowest score
+            
+            if new_value[0] == 3:
+                score -= 2*np.log(rec_rate) # We search for lowest score
+
+            new_state = (pat_haps, mat_haps)
+
+        # print(self.ind.idx, new_state)
+
+        return new_state, geno, score        
+
+
+@jit(nopython=True, nogil=True)
+def calculate_forward_geno_probs(geno_matrix, output):
+    # Row sum and then normalize
+    for i in range(4):
+        output[i] = 0.00000001
+        for j in range(4):
+            output[i] += geno_matrix[j, i] # Second value is recombination state.
+
+    norm_1D(output)
+
+
+
+@jit(nopython=True, nogil = True)
+def norm_1D(mat):
+    total = 0
+    for i in range(len(mat)):
+        total += mat[i]
+    for i in range(len(mat)):
+        mat[i] /= total
+
 @jit(nopython=True, nogil=True) 
 def get_haplotypes(raw_genotypes):
     nLoci = len(raw_genotypes)
@@ -228,141 +418,6 @@ def get_haplotypes(raw_genotypes):
             mat_hap[i] = 1
     return pat_hap, mat_hap
 
-@jit(nopython=True, nogil=True) 
-def haplib_sample(bw_library, ind, rate, error_rate):
-    hap_info = HaplotypeInformation(bw_library)
-
-    nHaps, nLoci = bw_library.a.shape
-
-    current_state = ((0, nHaps), (0, nHaps))
-  
-    genotypes = np.full(nLoci, 9, dtype = np.int64)
-    rec = np.full(nLoci, 0, dtype = np.float32)
-    values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
-
-    for i in range(nLoci):
-        new_state, geno, rec[i] = sample_locus(current_state, i, bw_library, ind, values, rate, error_rate, hap_info)
-        genotypes[i] = geno
-        current_state = new_state
-
-    # Add the final set of states
-    hap_info.add_pat_sample(nLoci-1, new_state[0])
-    hap_info.add_mat_sample(nLoci-1, new_state[1])
-
-    return genotypes, rec, hap_info
-
-
-@jit(nopython=True, nogil=True) 
-def sample_locus(current_states, index, bw_library, ind, values, rec_rate, error_rate, hap_info):
-
-    # We want to do a couple of things. 
-    # Of the current states, we want to work out which combinations will be produced at the next loci.
-    # then work out probabilities.
-    true_index = bw_library.get_true_index(index)
-    nHaps, nLoci = bw_library.a.shape
-
-    if index != 0:
-        current_pat = bw_library.update_state(current_states[0], index)
-        current_mat = bw_library.update_state(current_states[1], index)
-    else:
-        current_pat = bw_library.get_null_state(index)
-        current_mat = bw_library.get_null_state(index)
-    hap_lib = bw_library.get_null_state(index)
-
-    exclusion = np.empty(0, dtype = np.int64)
-    if ind.has_own_haplotypes:
-        exclusion = ind.own_haplotypes[:, true_index]
-
-    current_pat_counts = (count_haps(current_pat[0], exclusion), count_haps(current_pat[1], exclusion))
-    current_mat_counts = (count_haps(current_mat[0], exclusion), count_haps(current_mat[1], exclusion))
-    
-    hap_lib_counts = (count_haps(hap_lib[0], exclusion), count_haps(hap_lib[1], exclusion))
-    
-
-    # # Recombination ordering. Could do 2 x 2 I guess...
-    # # nn, nr, rn, rr
-
-    get_haps_probs(values[0,:], current_pat_counts, current_mat_counts,  (1-rec_rate)*(1-rec_rate))
-    get_haps_probs(values[1,:], current_pat_counts, hap_lib_counts, (1-rec_rate)*rec_rate)  
-    get_haps_probs(values[2,:], hap_lib_counts, current_mat_counts, rec_rate*(1-rec_rate))
-    get_haps_probs(values[3,:], hap_lib_counts, hap_lib_counts, rec_rate*rec_rate) 
-
-    for i in range(4):
-        for j in range(4):
-            # This is the individual's genotype probabilities. 
-            values[i,j] *= ind.penetrance[j,true_index]
-
-
-    # Zero index of new_value is recombination status, one index is resulting genotype.
-    
-    new_value, value_sum = weighted_sample_2D(values)
-
-    score = 0
-
-    match_score = np.log(1-error_rate)
-    no_match_score = np.log(error_rate)
-    
-    observed_genotype = ind.genotypes[true_index]
-    selected_genotype = new_value[1]
-    if observed_genotype != 9:
-        if observed_genotype == 0:
-            if selected_genotype == 0:
-                score -= match_score
-            else:
-                score -= no_match_score
-
-        if observed_genotype == 1:
-            if selected_genotype == 1 or selected_genotype == 2:
-                score -= match_score
-            else:
-                score -= no_match_score
-
-        if observed_genotype == 2:
-            if selected_genotype == 3:
-                score -= match_score
-            else:
-                score -= no_match_score
-
-
-    if value_sum == 0:
-        new_state = current_states
-        geno = np.argmax(ind.penetrance[:,true_index])
-        score -= 2*np.log(1-rec_rate) # We search for lowest score
-    else:
-
-        geno = new_value[1]
-        pat_value, mat_value = decode_genotype(new_value[1]) # Split out the genotype value into pat/mat states
-
-        if new_value[0] == 0 or new_value[0] == 1:
-            # No paternal recombination.
-            pat_haps = current_pat[pat_value]
-        else:
-            # Paternal recombination
-            pat_haps = hap_lib[pat_value]
-            if index > 0: 
-                hap_info.add_pat_sample(index-1, current_states[0])
-
-        if new_value[0] == 0 or new_value[0] == 2:
-            # No maternal recombination.
-            mat_haps = current_mat[mat_value]
-        else:
-            # maternal recombination
-            mat_haps = hap_lib[mat_value]
-            if index > 0:
-                hap_info.add_mat_sample(index-1, current_states[1])
-
-       
-        if new_value[0] == 1 or new_value[0] == 2:
-            score -= np.log(rec_rate) + np.log(1-rec_rate) # We search for lowest score
-        
-        if new_value[0] == 3:
-            score -= 2*np.log(rec_rate) # We search for lowest score
-
-        new_state = (pat_haps, mat_haps)
-
-    # print(self.ind.idx, new_state)
-
-    return new_state, geno, score        
 
 @jit(nopython = True)
 def count_haps(haplotypes, exclusion):

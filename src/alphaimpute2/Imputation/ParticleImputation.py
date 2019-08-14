@@ -27,7 +27,7 @@ def impute_individuals_with_bw_library(individuals, haplotype_library):
     
     for ind in individuals:
         # We never call genotypes so can do this once.
-        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0)
+        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
     jit_individuals = [ind.phasing_view for ind in individuals]
 
@@ -64,7 +64,7 @@ def impute(ind, bw_library) :
 
     samples = PhasingObjects.PhasingSampleContainer(bw_library, ind)
     for i in range(100):
-        samples.add_sample(rate)
+        samples.add_sample(rate, 0.01)
 
     converted_samples = [expand_sample(ind, sample, bw_library) for sample in samples.samples]
 
@@ -72,6 +72,12 @@ def impute(ind, bw_library) :
     sample_container.samples = converted_samples
 
     pat_hap, mat_hap = sample_container.get_consensus(50)
+    
+    ind.forward[:,:] = 0
+    for sample in samples.samples:
+        ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
+    ind.forward = np.log(ind.forward)
+
     add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 
 
@@ -97,7 +103,8 @@ def expand_sample(ind, sample, bw_library):
     mat_hap = np.full(nLoci, 0, dtype = np.int8)
 
     hap_info = sample.hap_info
-    # print("IND", ind.idn)
+
+    ranges = []
     for i in range(len(hap_info.pat_ranges)):
         range_object = hap_info.pat_ranges[i]
         global_start, global_stop = hap_info.get_global_bounds(i, 0)
@@ -108,6 +115,8 @@ def expand_sample(ind, sample, bw_library):
         bw_index = random.randrange(range_object.hap_range[0], range_object.hap_range[1])
         haplotype_index = bw_library.a[bw_index, encoding_index]
         pat_hap[global_start:global_stop] = bw_library.full_haps[haplotype_index, global_start:global_stop]
+
+        ranges.append((global_start, global_stop, range_object.hap_range[0], range_object.hap_range[1]))
 
     for i in range(len(hap_info.mat_ranges)):
         range_object = hap_info.mat_ranges[i]
@@ -120,11 +129,11 @@ def expand_sample(ind, sample, bw_library):
         haplotype_index = bw_library.a[bw_index, encoding_index]
         mat_hap[global_start:global_stop] = bw_library.full_haps[haplotype_index, global_start:global_stop]
 
-    new_sample = PhasingObjects.PhasingSample(sample.rate)
+    new_sample = PhasingObjects.PhasingSample(sample.rate, sample.error_rate)
     new_sample.haplotypes = (pat_hap, mat_hap)
     new_sample.genotypes = pat_hap +  mat_hap
 
-    new_rec = np.full(nLoci, 0, dtype = np.int64)
+    new_rec = np.full(nLoci, 0, dtype = np.float32)
     for i in range(len(sample.rec)):
         true_index = bw_library.get_true_index(i)
         new_rec[true_index] = sample.rec[i]

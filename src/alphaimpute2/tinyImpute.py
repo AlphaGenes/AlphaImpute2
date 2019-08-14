@@ -96,10 +96,50 @@ def writeOutResults(pedigree, args):
         # for ind in pedigree:
         #     ind.peeling_view.setGenotypesFromPeelingData(True, False, False, .1)
 
-        # pedigree.writeGenotypes(args.out + ".anterior")
+        writeGenoProbs(pedigree, lambda ind: ind.phasing_view.forward, args.out + ".forward")
+        writeGenoProbs(pedigree, lambda ind: ind.phasing_view.backward, args.out + ".backward")
+        writeGenoProbs(pedigree, lambda ind: ind.phasing_view.penetrance, args.out + ".penetrance")
 
-        # pedigree.writeSegregation(args.out + ".seg.0", 0)
-        # pedigree.writeSegregation(args.out + ".seg.1", 1)
+        with open(args.out + ".called", 'w+') as f:
+            for ind in pedigree:
+                f.write(ind.idx + ' ' + ' '.join(map(str, ind.phasing_view.called_genotypes)) + '\n')
+
+
+def writeGenoProbs(pedigree, genoProbFunc, outputFile):
+    with open(outputFile, 'w+') as f:
+        for idx, ind in pedigree.writeOrder():
+            matrix = genoProbFunc(ind)
+            f.write('\n')
+            for i in range(matrix.shape[0]) :
+                f.write(ind.idx + ' ' + ' '.join(map("{:.4f}".format, matrix[i,:])) + '\n')
+
+def reverse_individual(ind):
+    new_ind = ImputationIndividual.AlphaImputeIndividual(ind.idx, ind.idn)
+    new_ind.genotypes = np.ascontiguousarray(np.flip(ind.genotypes))
+
+    new_ind.setupIndividual()
+    Imputation.ind_align(new_ind)
+    return(new_ind)
+
+
+def collapse_and_call(ind, rev_ind):
+
+    ind.phasing_view.backward = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
+    ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
+
+    combined = ind.phasing_view.backward + ind.phasing_view.forward + np.log(ind.phasing_view.penetrance)
+
+    Heuristic_Peeling.exp_2D_norm(combined, combined)
+    ind.phasing_view.called_genotypes = call_genotypes(combined)
+
+def add_backward_info(ind, rev_ind):
+
+    ind.phasing_view.backward[:,:] = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
+
+def call_genotypes(matrix):
+    matrixCollapsedHets = np.array([matrix[0,:], matrix[1,:] + matrix[2,:], matrix[3,:]], dtype=np.float32)
+    calledGenotypes = np.argmax(matrixCollapsedHets, axis = 0)
+    return calledGenotypes.astype(np.int8)
 
 
 @profile
@@ -118,15 +158,48 @@ def main():
 
     if args.phase:
         hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > .6]
+ 
+        print("Reverse library")
+        # Some code to work with reversed individuals
+        flipped_dict = dict()
+        reversed_hd = []
+        for ind in hd_individuals:
+            rev_ind = reverse_individual(ind)
+            flipped_dict[ind.idn] = (ind, rev_ind)
+            reversed_hd += [rev_ind]
+
+        ParticlePhasing.create_library_and_phase(reversed_hd, pedigree, args)
+
+        for ind in hd_individuals:
+            ind, rev_ind = flipped_dict[ind.idn]
+            add_backward_info(ind, rev_ind)
+
+
         print(len(hd_individuals), "Sent to phasing")
         ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, args)
-        
+      
+
         if args.popimpute:
-            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
-
             ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]
-            print(len(ld_individuals), "Sent to imputation")
+            print("Reverse library")
 
+            flipped_dict = dict()
+            reversed_ld = []
+            for ind in ld_individuals:
+                rev_ind = reverse_individual(ind)
+                flipped_dict[ind.idn] = (ind, rev_ind)
+                reversed_ld += [rev_ind]
+
+            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
+            ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library)
+
+            for ind in ld_individuals:
+                ind, rev_ind = flipped_dict[ind.idn]
+                add_backward_info(ind, rev_ind)
+
+
+            print(len(ld_individuals), "Sent to imputation")
+            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
             ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library)
 
 
@@ -139,7 +212,6 @@ def main():
 
     writeOutResults(pedigree, args)
     print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
-
 
 
 if __name__ == "__main__":

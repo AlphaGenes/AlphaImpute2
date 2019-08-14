@@ -18,6 +18,11 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
     def setupIndividual(self):
 
+
+        nLoci = len(self.genotypes)
+        if self.haplotypes is None:
+            self.haplotypes = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
+
         self.setPhasingView()
         self.setPeelingView()
 
@@ -49,11 +54,16 @@ spec['idn'] = int64
 spec['nLoci'] = int64
 spec['genotypes'] = int8[:]
 
+spec['called_genotypes'] = int8[:]
+
 # Haplotypes and reads are a tuple of int8 and int64.
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
 spec['penetrance'] = float32[:,:]
+
+spec['forward'] = float32[:,:]
+spec['backward'] = float32[:,:]
 
 spec['own_haplotypes'] = int64[:,:]
 spec['has_own_haplotypes'] = boolean
@@ -72,6 +82,10 @@ class jit_Phasing_Individual(object):
         
         self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
 
+        self.forward = np.full((4, nLoci), 1, dtype = np.float32) 
+        self.backward = np.full((4, nLoci), 1, dtype = np.float32) 
+
+        self.called_genotypes = np.full(nLoci, 9, dtype = np.int8)
 
         self.own_haplotypes = np.full((0, 0), 0, dtype = np.int64)
         self.has_own_haplotypes = False
