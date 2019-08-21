@@ -22,11 +22,8 @@ class BurrowsWheelerLibrary():
         self.haplotypes = []
         self.library = None
         self.nHaps = 0
-
         self.bw_loci = None
-
         self.individual_dictionary = dict()
-
         self.library_created = False
 
     def append(self, hap, ind = None):

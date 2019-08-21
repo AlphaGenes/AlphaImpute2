@@ -183,19 +183,19 @@ def main():
             ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]
             print("Reverse library")
 
-            flipped_dict = dict()
-            reversed_ld = []
-            for ind in ld_individuals:
-                rev_ind = reverse_individual(ind)
-                flipped_dict[ind.idn] = (ind, rev_ind)
-                reversed_ld += [rev_ind]
+            # flipped_dict = dict()
+            # reversed_ld = []
+            # for ind in ld_individuals:
+            #     rev_ind = reverse_individual(ind)
+            #     flipped_dict[ind.idn] = (ind, rev_ind)
+            #     reversed_ld += [rev_ind]
 
-            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
-            ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library)
+            # library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
+            # ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library)
 
-            for ind in ld_individuals:
-                ind, rev_ind = flipped_dict[ind.idn]
-                add_backward_info(ind, rev_ind)
+            # for ind in ld_individuals:
+            #     ind, rev_ind = flipped_dict[ind.idn]
+            #     add_backward_info(ind, rev_ind)
 
 
             print(len(ld_individuals), "Sent to imputation")

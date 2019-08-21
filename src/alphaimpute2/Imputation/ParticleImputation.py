@@ -13,6 +13,8 @@ from . import Imputation
 from . import ImputationIndividual
 from . import PhasingObjects
 
+from . import hap_merging
+
 from ..tinyhouse.Utils import time_func
 from ..tinyhouse import InputOutput
 
@@ -31,11 +33,13 @@ def impute_individuals_with_bw_library(individuals, haplotype_library):
 
     jit_individuals = [ind.phasing_view for ind in individuals]
 
-    loci = get_loci(jit_individuals, .9)
+    loci = get_loci(jit_individuals, .5)
     print(loci)
     haplotype_library.setup_library(loci)
     for ind in jit_individuals:
-        impute(ind, haplotype_library.library)
+        print(ind.idn)
+        # impute(ind, haplotype_library.library)
+        impute_hap_merge(ind, haplotype_library.library)
 
 
 @jit(nopython=True, nogil=True) 
@@ -79,6 +83,21 @@ def impute(ind, bw_library) :
         for sample in samples.samples:
             ind.forward[:, index] += sample.forward.forward_geno_probs[:, index] # We're really just averaging over particles. 
 
+    add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+
+# @jit(nopython=True)
+def impute_hap_merge(ind, bw_library) :
+    rate = 1/bw_library.nLoci
+    # print("hello world 1")
+    samples = PhasingObjects.PhasingSampleContainer(bw_library, ind)
+    for i in range(100):
+        samples.add_sample(rate, 0.01)
+
+    # print("hello world 2")
+    sample_container = hap_merging.backwards_sampling(samples, bw_library)
+
+    pat_hap, mat_hap = sample_container.get_consensus(50)
+    
     add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 
 
