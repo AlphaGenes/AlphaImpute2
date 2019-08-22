@@ -212,8 +212,8 @@ class PhasingSample(object):
     def __init__(self, rec_rate, error_rate):
         self.rec_rate = rec_rate
         self.error_rate = error_rate
-        self.calculate_forward_estimates = False
-        self.track_hap_info = False
+        self.calculate_forward_estimates = True
+        self.track_hap_info = True
 
         self.match_score = np.log(1-error_rate)
         self.no_match_score = np.log(error_rate)
