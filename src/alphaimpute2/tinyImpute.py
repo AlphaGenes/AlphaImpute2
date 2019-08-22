@@ -1,15 +1,11 @@
 from .tinyhouse import Pedigree
 from .tinyhouse import InputOutput
-from .tinyhouse import ProbMath
 
-from .Imputation import ProbPhasing
 from .Imputation import ParticlePhasing
 from .Imputation import ParticleImputation
 from .Imputation import Heuristic_Peeling
 from .Imputation import ImputationIndividual
 from .Imputation import Imputation
-
-from .Imputation import FamilyParentPhasing
 
 
 import datetime

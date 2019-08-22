@@ -7,7 +7,6 @@ from itertools import repeat
 import datetime
 
 from . import Imputation
-from . import FamilyParentPhasing
 
 from ..tinyhouse import ProbMath
 

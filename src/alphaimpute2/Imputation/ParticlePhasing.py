@@ -5,15 +5,10 @@ import concurrent.futures
 
 from numba import njit, jit, jitclass
 from collections import OrderedDict
-
 from itertools import repeat
 
 from . import BurrowsWheelerLibrary
-from . import Imputation
-from . import ImputationIndividual
 from . import PhasingObjects
-
-from . import tmp_merging
 
 from ..tinyhouse.Utils import time_func
 from ..tinyhouse import InputOutput
@@ -30,17 +25,15 @@ except:
 def create_library_and_phase(individuals, pedigree, args, final_phase = True) :
     # This function creates a haplotype library and phases individuals using the haplotype library.
 
+    # fill in genotype probabilities.
     for ind in individuals:
-        # We never call genotypes so can do this once.
         ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
+    # Run five rounds of phasing.
     for rep in range(5):
         phase_round(individuals, individual_exclusion = True, set_haplotypes = False)
-    
-    # Second round of genotype calling
-    for ind in individuals:
-        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
-       
+
+    # Run last round of phasing.    
     phase_round(individuals, individual_exclusion = True, set_haplotypes = True)
 
 
@@ -55,8 +48,9 @@ def phase_round(individuals, individual_exclusion = False, set_haplotypes = Fals
 @profile
 def get_reference_library(individuals, individual_exclusion = False, setup = True, reverse = False):
     # Construct a library, and add individuals to it.
-    # If we are worried about an individual's haplotype being included in the reference library (i.e. because we are about to phase that individual)
-    # Then use the individual_exclusion flag to make sure they don't use their own haplotype.
+    # individual_exclusion adds a flag to record who's haplotype is in the library, so that the haplotype can be removed when phasing that individual.
+    # setup: Determins whether the BW library is set up, or if just a base library is created. This can be useful if the library needs to be sub-setted before being used. 
+    # Reverse: Determines if the library should be made up of the reverse haplotypes -- this is used for the backward passes.
 
     haplotype_library = BurrowsWheelerLibrary.BurrowsWheelerLibrary()
     
@@ -81,7 +75,7 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
 
 
 def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes):
-    # This tiny function is split out since we may want to run it from something else.
+    # Runs a set of individuals with an already-existing BW library and a flag for whether or not to set the haplotypes.
     chunksize = 100
     jit_individuals = [ind.phasing_view for ind in individuals]
 
@@ -94,18 +88,29 @@ def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes):
             executor.map(phase_group, groups, repeat(bwLibrary.library), repeat(set_haplotypes))
 
 def split_individuals_into_groups(individuals, chunksize):
-    # This seems to handle the end of lists okay.
+    # Split out a list of individuals into groups that are approximately chunksize long.
     groups = [individuals[start:(start+chunksize)] for start in range(0, len(individuals), chunksize)]
     return groups
 
-# @jit(nopython=True, nogil=True) 
+@jit(nopython=True, nogil=True) 
 def phase_group(individuals, haplotype_library, set_haplotypes):
+    # Phases a group of individuals.
     for ind in individuals:
         phase(ind, haplotype_library, set_haplotypes = set_haplotypes)
 
 
-# @jit(nopython=True, nogil=True) 
+@jit(nopython=True, nogil=True) 
 def phase(ind, haplotype_library, set_haplotypes = False) :
+    # Phases a specific individual.
+    # Set_haplotypes determines whether or not to actually set the haplotypes of an individual based on the underlying samples.
+    # Set_haploypes also determines whether forward_geno_probs gets calculated.
+
+    # FLAG: Rate is hard coded.
+    # FLAG: n_samples is hard coded.
+    # FLAG: error_rate is hard coded.
+
+    # FLAG: Do we need to check for genotype calling?
+
     nLoci = len(ind.genotypes)
     rate = 5/nLoci
 
@@ -117,36 +122,29 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
         error_rate = 0.01
         n_samples = 5
 
-    samples = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
+    sample_container = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
     for i in range(n_samples):
-        samples.add_sample(rate, error_rate)
+        sample_container.add_sample(rate, error_rate)
 
-
-    if n_samples == 1:
-        pat_hap, mat_hap = samples.get_consensus(50)
-    else:
-        # samples = tmp_merging.backwards_sampling(samples)
-        pat_hap, mat_hap = samples.get_consensus(50)
+    pat_hap, mat_hap = sample_container.get_consensus(50)
 
     if set_haplotypes:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 
         ind.forward[:,:] = 0
-        for sample in samples.samples:
+        for sample in sample_container.samples:
             ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
 
     else:
+        # Otherwise just set their haplotypes to the current estimated haplotype.
         ind.current_haplotypes[0][:] = pat_hap
         ind.current_haplotypes[1][:] = mat_hap
     
 
 @jit(nopython=True, nogil=True) 
 def add_haplotypes_to_ind(ind, pat_hap, mat_hap):
+    # Sets all loci to the new values (this will call missing loci as well.
     nLoci = len(pat_hap)
-    for i in range(nLoci):
-        # This is weird becuase it was designed to have an option to not fill in missing genotypes. 
-        # It looks like filling in missing genotypes is okay though.
-        ind.haplotypes[0][i] = pat_hap[i]
-        ind.haplotypes[1][i] = mat_hap[i]
-        ind.genotypes[i] = pat_hap[i] + mat_hap[i]
-
+    ind.haplotypes[0][:] = pat_hap[:]
+    ind.haplotypes[1][:] = mat_hap[:]
+    ind.genotypes[:] = pat_hap[:] + mat_hap[:]
