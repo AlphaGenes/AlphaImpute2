@@ -120,7 +120,7 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
         error_rate = 0.01
     else:
         error_rate = 0.01
-        n_samples = 5
+        n_samples = 40
 
     sample_container = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
     for i in range(n_samples):

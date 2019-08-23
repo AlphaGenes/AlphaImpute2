@@ -54,7 +54,7 @@ class BurrowsWheelerLibrary():
         else:
             bw_loci = list(range(hap_array.shape[1]))
         
-
+        bw_loci = np.array(bw_loci, dtype = np.int64)
         self.library = jit_BurrowsWheelerLibrary(hap_array[:,bw_loci], hap_array, bw_loci)
 
         self.library_created = True
@@ -91,7 +91,7 @@ jit_BurrowsWheelerLibrary_spec['nLoci'] = int64
 jit_BurrowsWheelerLibrary_spec['full_haps'] = int8[:,:]
 jit_BurrowsWheelerLibrary_spec['full_nLoci'] = int64
 
-jit_BurrowsWheelerLibrary_spec['loci'] = numba.typeof([0,1])
+jit_BurrowsWheelerLibrary_spec['loci'] = int64[:]
 
 @jitclass(jit_BurrowsWheelerLibrary_spec)
 class jit_BurrowsWheelerLibrary():
@@ -187,10 +187,10 @@ class jit_BurrowsWheelerLibrary():
                 lowerR =self.nZeros[index] + (int_start - self.zeroOccNext[int_start-1, index-1]) 
             upperR =self.nZeros[index] + (int_end - self.zeroOccNext[int_end-1, index-1])
 
-        if lowerR >= upperR:
-            return (-1, -1)
-        else:
+        if lowerR < upperR:
             return (lowerR, upperR)
+
+        return (-1, -1)
 
 
     def get_null_state(self, index):
