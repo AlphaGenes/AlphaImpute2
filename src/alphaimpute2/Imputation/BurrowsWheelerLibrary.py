@@ -21,6 +21,7 @@ class BurrowsWheelerLibrary():
     def __init__(self):
         self.haplotypes = []
         self.library = None
+        self.reverse_library = None
         self.nHaps = 0
         self.bw_loci = None
         self.individual_dictionary = dict()

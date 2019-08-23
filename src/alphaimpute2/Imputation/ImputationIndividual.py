@@ -4,6 +4,7 @@ import numba
 from numba import jit, int8, int64, boolean, optional, jitclass, float32
 from collections import OrderedDict
 import numpy as np
+from . import Imputation
 
 try:
     profile
@@ -15,6 +16,8 @@ except:
 class AlphaImputeIndividual(Pedigree.Individual):
     def __init__(self, idx, idn):
         super().__init__(idx, idn)
+
+        self.reverse_view = None
 
     def setupIndividual(self):
 
@@ -48,6 +51,22 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, nLoci)
 
 
+    def reverse_individual(self):
+        new_ind = AlphaImputeIndividual(self.idx, self.idn)
+        new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
+
+        new_ind.setupIndividual()
+        Imputation.ind_align(new_ind)
+
+        self.reverse_view = new_ind
+        new_ind.reverse_view = self
+        return(new_ind)
+
+    def add_backward_info(self):
+        if self.reverse_view is None:
+            print("Trying to set backward information, but no reverse_view is availible")
+        else:
+            self.phasing_view.backward[:,:] = np.flip(self.reverse_view.phasing_view.forward, axis = 1) # Flip along loci.
 
 spec = OrderedDict()
 spec['idn'] = int64

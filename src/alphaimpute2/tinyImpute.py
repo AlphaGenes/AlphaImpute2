@@ -73,32 +73,26 @@ def getArgs() :
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
 
+
+    core_impute_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
+    core_impute_parser.add_argument('-n_phasing_cycles',default=4, required=False, type=int, help='Number of phasing cycles. Default: 4')
+
     return InputOutput.parseArgs("AlphaImpute", parser)
 
 def writeOutResults(pedigree, args):
     if args.binaryoutput :
         InputOutput.writeOutGenotypesPlink(pedigree, args.out)
     else:
-        # for ind in pedigree:
-        #     ind.peeling_view.setGenotypesAll(.7)
-
         pedigree.writeGenotypes(args.out + ".genotypes")
-        pedigree.writePhase(args.out + ".phase")
+        # pedigree.writePhase(args.out + ".phase")
         
-        # for ind in pedigree:
-        #     ind.peeling_view.setGenotypesPenetrance(.1)
-        # pedigree.writeGenotypes(args.out + ".penetrance")
+        # writeGenoProbs(pedigree, lambda ind: ind.phasing_view.forward, args.out + ".forward")
+        # writeGenoProbs(pedigree, lambda ind: ind.phasing_view.backward, args.out + ".backward")
+        # writeGenoProbs(pedigree, lambda ind: ind.phasing_view.penetrance, args.out + ".penetrance")
 
-        # for ind in pedigree:
-        #     ind.peeling_view.setGenotypesFromPeelingData(True, False, False, .1)
-
-        writeGenoProbs(pedigree, lambda ind: ind.phasing_view.forward, args.out + ".forward")
-        writeGenoProbs(pedigree, lambda ind: ind.phasing_view.backward, args.out + ".backward")
-        writeGenoProbs(pedigree, lambda ind: ind.phasing_view.penetrance, args.out + ".penetrance")
-
-        with open(args.out + ".called", 'w+') as f:
-            for ind in pedigree:
-                f.write(ind.idx + ' ' + ' '.join(map(str, ind.phasing_view.called_genotypes)) + '\n')
+        # with open(args.out + ".called", 'w+') as f:
+        #     for ind in pedigree:
+        #         f.write(ind.idx + ' ' + ' '.join(map(str, ind.phasing_view.called_genotypes)) + '\n')
 
 
 def writeGenoProbs(pedigree, genoProbFunc, outputFile):
@@ -117,6 +111,8 @@ def reverse_individual(ind):
     Imputation.ind_align(new_ind)
     return(new_ind)
 
+def add_backward_info(ind, rev_ind):
+    ind.phasing_view.backward[:,:] = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
 
 def collapse_and_call(ind, rev_ind):
 
@@ -128,9 +124,6 @@ def collapse_and_call(ind, rev_ind):
     Heuristic_Peeling.exp_2D_norm(combined, combined)
     ind.phasing_view.called_genotypes = call_genotypes(combined)
 
-def add_backward_info(ind, rev_ind):
-
-    ind.phasing_view.backward[:,:] = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
 
 def call_genotypes(matrix):
     matrixCollapsedHets = np.array([matrix[0,:], matrix[1,:] + matrix[2,:], matrix[3,:]], dtype=np.float32)
@@ -155,25 +148,9 @@ def main():
     if args.phase:
         hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > .6]
  
-        print("Reverse library")
-        # Some code to work with reversed individuals
-        flipped_dict = dict()
-        reversed_hd = []
-        for ind in hd_individuals:
-            rev_ind = reverse_individual(ind)
-            flipped_dict[ind.idn] = (ind, rev_ind)
-            reversed_hd += [rev_ind]
+        cycles = [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
 
-        ParticlePhasing.create_library_and_phase(reversed_hd, pedigree, args)
-
-        for ind in hd_individuals:
-            ind, rev_ind = flipped_dict[ind.idn]
-            add_backward_info(ind, rev_ind)
-
-
-        print(len(hd_individuals), "Sent to phasing")
-        ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, args)
-      
+        ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, cycles, args)     
 
         if args.popimpute:
             ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]

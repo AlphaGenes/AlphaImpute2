@@ -22,27 +22,47 @@ except:
 
 @time_func("Total phasing")
 @profile
-def create_library_and_phase(individuals, pedigree, args, final_phase = True) :
+def create_library_and_phase(individuals, pedigree, cycles, args) :
     # This function creates a haplotype library and phases individuals using the haplotype library.
 
-    # fill in genotype probabilities.
     for ind in individuals:
         ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
-    # Run five rounds of phasing.
-    for rep in range(5):
-        phase_round(individuals, individual_exclusion = True, set_haplotypes = False)
+    phase_round(individuals, individual_exclusion = True, set_haplotypes = False, run_backward_pass = False, n_samples = 1)
+    for i in range(len(cycles) - 1):
+        phase_round(individuals, individual_exclusion = True, set_haplotypes = False, run_backward_pass = True, n_samples = cycles[i])
 
     # Run last round of phasing.    
-    phase_round(individuals, individual_exclusion = True, set_haplotypes = True)
+    phase_round(individuals, individual_exclusion = True, set_haplotypes = True, run_backward_pass = True, n_samples = cycles[-1])
 
 
 @time_func("Phasing round")
 @profile
-def phase_round(individuals, individual_exclusion = False, set_haplotypes = False):
-    # In a given round we create a haplotype reference library, and phase individuals using it.
-    bwLibrary = get_reference_library(individuals, individual_exclusion)
-    phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes = set_haplotypes)
+def phase_round(individuals, individual_exclusion = False, set_haplotypes = False, run_backward_pass = False, n_samples = 40):
+
+    if run_backward_pass:
+        # Run the backward pass, by creating reversed individuals, phasing them using the existing library, and combining their information with the normal individuals.
+        rev_individuals = reverse_individuals(individuals)
+        reversed_bw_library = get_reference_library(rev_individuals, individual_exclusion)
+    
+        for ind in rev_individuals:
+            ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
+
+        phase_individuals_with_bw_library(rev_individuals, reversed_bw_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
+
+        for ind in individuals:
+            ind.add_backward_info()
+    
+
+    bw_library = get_reference_library(individuals, individual_exclusion)
+    phase_individuals_with_bw_library(individuals, bw_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
+
+def reverse_individuals(individuals):
+    rev_individuals = []
+    for ind in individuals:
+        rev_ind = ind.reverse_individual()
+        rev_individuals.append(rev_ind)
+    return rev_individuals
 
 @time_func("Creating BW library")
 @profile
@@ -74,18 +94,18 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
 
 
 
-def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes):
+def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes, n_samples):
     # Runs a set of individuals with an already-existing BW library and a flag for whether or not to set the haplotypes.
     chunksize = 100
     jit_individuals = [ind.phasing_view for ind in individuals]
 
     if InputOutput.args.maxthreads <= 1 or len(individuals) < chunksize:
-        phase_group(jit_individuals, bwLibrary.library, set_haplotypes = set_haplotypes)
+        phase_group(jit_individuals, bwLibrary.library, set_haplotypes = set_haplotypes, n_samples = n_samples)
 
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=InputOutput.args.maxthreads) as executor:
             groups = split_individuals_into_groups(jit_individuals, chunksize)
-            executor.map(phase_group, groups, repeat(bwLibrary.library), repeat(set_haplotypes))
+            executor.map(phase_group, groups, repeat(bwLibrary.library), repeat(set_haplotypes), repeat(n_samples))
 
 def split_individuals_into_groups(individuals, chunksize):
     # Split out a list of individuals into groups that are approximately chunksize long.
@@ -93,20 +113,19 @@ def split_individuals_into_groups(individuals, chunksize):
     return groups
 
 @jit(nopython=True, nogil=True) 
-def phase_group(individuals, haplotype_library, set_haplotypes):
+def phase_group(individuals, haplotype_library, set_haplotypes, n_samples):
     # Phases a group of individuals.
     for ind in individuals:
-        phase(ind, haplotype_library, set_haplotypes = set_haplotypes)
+        phase(ind, haplotype_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
 
 
 @jit(nopython=True, nogil=True) 
-def phase(ind, haplotype_library, set_haplotypes = False) :
+def phase(ind, haplotype_library, set_haplotypes = False, n_samples = 40) :
     # Phases a specific individual.
     # Set_haplotypes determines whether or not to actually set the haplotypes of an individual based on the underlying samples.
     # Set_haploypes also determines whether forward_geno_probs gets calculated.
 
     # FLAG: Rate is hard coded.
-    # FLAG: n_samples is hard coded.
     # FLAG: error_rate is hard coded.
 
     # FLAG: Do we need to check for genotype calling?
@@ -114,13 +133,7 @@ def phase(ind, haplotype_library, set_haplotypes = False) :
     nLoci = len(ind.genotypes)
     rate = 5/nLoci
 
-
-    if set_haplotypes:
-        n_samples = 40
-        error_rate = 0.01
-    else:
-        error_rate = 0.01
-        n_samples = 40
+    error_rate = 0.01
 
     sample_container = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
     for i in range(n_samples):
