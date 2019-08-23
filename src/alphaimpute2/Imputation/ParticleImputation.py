@@ -20,7 +20,7 @@ except:
         return x
 
 @time_func("Runing imputation")
-def impute_individuals_with_bw_library(individuals, haplotype_library):
+def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples):
     
     # fill in genotype probabilities.
     for ind in individuals:
@@ -34,13 +34,13 @@ def impute_individuals_with_bw_library(individuals, haplotype_library):
     
     # Sets up the haplotype reference library using only the loci in loci. 
     haplotype_library.setup_library(loci)
-    impute_group(jit_individuals, haplotype_library.library)
+    impute_group(jit_individuals, haplotype_library.library, n_samples)
 
 
 @jit(nopython=True, nogil=True) 
-def impute_group(individuals, library):
+def impute_group(individuals, library, n_samples):
     for ind in individuals:
-        impute(ind, library)
+        impute(ind, library, n_samples)
 
 
 @jit(nopython=True, nogil=True) 
@@ -65,16 +65,18 @@ def get_non_missing_loci(individuals, threshold):
     return loci
 
 @jit(nopython=True, nogil=True) 
-def impute(ind, bw_library) :
+def impute(ind, bw_library, n_samples) :
 
     # FLAG: Hard coded rate. Is this even the right rate?
-    rate = 1/bw_library.nLoci
+    rec_rate = 1/bw_library.nLoci
+
+    calculate_forward_estimates = True
+    track_hap_info = True
 
 
-    n_samples = 100
     sample_container = PhasingObjects.PhasingSampleContainer(bw_library, ind)
     for i in range(n_samples):
-        sample_container.add_sample(rate, 0.01)
+        sample_container.add_sample(rec_rate, 0.01, calculate_forward_estimates, track_hap_info)
 
     # This is probably more complicated than it needs to be.
     converted_samples = [expand_sample(ind, sample, bw_library) for sample in sample_container.samples]

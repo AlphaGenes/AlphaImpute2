@@ -22,47 +22,27 @@ except:
 
 @time_func("Total phasing")
 @profile
-def create_library_and_phase(individuals, pedigree, cycles, args) :
+def create_library_and_phase(individuals, cycles, args) :
     # This function creates a haplotype library and phases individuals using the haplotype library.
 
     for ind in individuals:
         ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
-    phase_round(individuals, individual_exclusion = True, set_haplotypes = False, run_backward_pass = False, n_samples = 1)
+    phase_round(individuals, individual_exclusion = True, set_haplotypes = False, n_samples = 1)
     for i in range(len(cycles) - 1):
-        phase_round(individuals, individual_exclusion = True, set_haplotypes = False, run_backward_pass = True, n_samples = cycles[i])
+        phase_round(individuals, individual_exclusion = True, set_haplotypes = False, n_samples = cycles[i])
 
     # Run last round of phasing.    
-    phase_round(individuals, individual_exclusion = True, set_haplotypes = True, run_backward_pass = True, n_samples = cycles[-1])
+    phase_round(individuals, individual_exclusion = True, set_haplotypes = True, n_samples = cycles[-1])
 
 
 @time_func("Phasing round")
 @profile
-def phase_round(individuals, individual_exclusion = False, set_haplotypes = False, run_backward_pass = False, n_samples = 40):
-
-    if run_backward_pass:
-        # Run the backward pass, by creating reversed individuals, phasing them using the existing library, and combining their information with the normal individuals.
-        rev_individuals = reverse_individuals(individuals)
-        reversed_bw_library = get_reference_library(rev_individuals, individual_exclusion)
-    
-        for ind in rev_individuals:
-            ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
-
-        phase_individuals_with_bw_library(rev_individuals, reversed_bw_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
-
-        for ind in individuals:
-            ind.add_backward_info()
-    
+def phase_round(individuals, individual_exclusion = False, set_haplotypes = False, n_samples = 40):
 
     bw_library = get_reference_library(individuals, individual_exclusion)
     phase_individuals_with_bw_library(individuals, bw_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
 
-def reverse_individuals(individuals):
-    rev_individuals = []
-    for ind in individuals:
-        rev_ind = ind.reverse_individual()
-        rev_individuals.append(rev_ind)
-    return rev_individuals
 
 @time_func("Creating BW library")
 @profile
@@ -136,14 +116,18 @@ def phase(ind, haplotype_library, set_haplotypes = False, n_samples = 40) :
     error_rate = 0.01
 
     sample_container = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
+    
+    calculate_forward_estimates = set_haplotypes
+    track_hap_info = False
+
     for i in range(n_samples):
-        sample_container.add_sample(rate, error_rate)
+        sample_container.add_sample(rate, error_rate, calculate_forward_estimates, track_hap_info)
 
     pat_hap, mat_hap = sample_container.get_consensus(50)
+  
 
     if set_haplotypes:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
-
         ind.forward[:,:] = 0
         for sample in sample_container.samples:
             ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 

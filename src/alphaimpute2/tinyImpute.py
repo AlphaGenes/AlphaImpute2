@@ -74,8 +74,10 @@ def getArgs() :
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
 
 
-    core_impute_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
-    core_impute_parser.add_argument('-n_phasing_cycles',default=4, required=False, type=int, help='Number of phasing cycles. Default: 4')
+    core_impute_parser.add_argument('-n_phasing_particles',default=80, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
+    core_impute_parser.add_argument('-n_phasing_cycles',default=5, required=False, type=int, help='Number of phasing cycles. Default: 4')
+
+    core_impute_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -103,16 +105,16 @@ def writeGenoProbs(pedigree, genoProbFunc, outputFile):
             for i in range(matrix.shape[0]) :
                 f.write(ind.idx + ' ' + ' '.join(map("{:.4f}".format, matrix[i,:])) + '\n')
 
-def reverse_individual(ind):
-    new_ind = ImputationIndividual.AlphaImputeIndividual(ind.idx, ind.idn)
-    new_ind.genotypes = np.ascontiguousarray(np.flip(ind.genotypes))
+# def reverse_individual(ind):
+#     new_ind = ImputationIndividual.AlphaImputeIndividual(ind.idx, ind.idn)
+#     new_ind.genotypes = np.ascontiguousarray(np.flip(ind.genotypes))
 
-    new_ind.setupIndividual()
-    Imputation.ind_align(new_ind)
-    return(new_ind)
+#     new_ind.setupIndividual()
+#     Imputation.ind_align(new_ind)
+#     return(new_ind)
 
-def add_backward_info(ind, rev_ind):
-    ind.phasing_view.backward[:,:] = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
+# def add_backward_info(ind, rev_ind):
+#     ind.phasing_view.backward[:,:] = np.flip(rev_ind.phasing_view.forward, axis = 1) # Flip along loci.
 
 def collapse_and_call(ind, rev_ind):
 
@@ -130,7 +132,6 @@ def call_genotypes(matrix):
     calledGenotypes = np.argmax(matrixCollapsedHets, axis = 0)
     return calledGenotypes.astype(np.int8)
 
-
 @profile
 def main():
     
@@ -147,33 +148,32 @@ def main():
 
     if args.phase:
         hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > .6]
- 
         cycles = [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
 
-        ParticlePhasing.create_library_and_phase(hd_individuals, pedigree, cycles, args)     
+        rev_individuals = [ind.reverse_individual() for ind in hd_individuals]
+        ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
+
+        for ind in hd_individuals:
+            ind.add_backward_info()
+
+        ParticlePhasing.create_library_and_phase(hd_individuals, cycles, args)     
 
         if args.popimpute:
             ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) < 1]
-            print("Reverse library")
 
             flipped_dict = dict()
-            reversed_ld = []
-            for ind in ld_individuals:
-                rev_ind = reverse_individual(ind)
-                flipped_dict[ind.idn] = (ind, rev_ind)
-                reversed_ld += [rev_ind]
+            reversed_ld = [ind.reverse_individual() for ind in ld_individuals]
 
             library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
-            ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library)
+            ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library, n_samples = args.n_imputation_particles)
 
             for ind in ld_individuals:
-                ind, rev_ind = flipped_dict[ind.idn]
-                add_backward_info(ind, rev_ind)
+                ind.add_backward_info()
 
 
             print(len(ld_individuals), "Sent to imputation")
             library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
-            ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library)
+            ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
 
 
     # Run family based phasing.

@@ -642,8 +642,11 @@ class PhasingSampleContainer(object):
         self.bw_library = bw_library
         self.ind = ind
 
-    def add_sample(self, rate, error_rate):
+    def add_sample(self, rate, error_rate, calculate_forward_estimates, track_hap_info):
         new_sample = PhasingSample(rate, error_rate)
+        new_sample.calculate_forward_estimates = calculate_forward_estimates
+        new_sample.track_hap_info = track_hap_info
+        
         new_sample.sample(self.bw_library, self.ind)
         if self.samples is None:
             self.samples = [new_sample]
