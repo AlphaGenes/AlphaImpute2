@@ -160,8 +160,8 @@ def main():
         ParticlePhasing.create_library_and_phase(hd_individuals, cycles, args)     
 
         if args.popimpute:
-            ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= .6]
-            print("Imputing", len(hd_individuals), "LD individuals")
+            ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= .6 and np.mean(ind.genotypes !=9) > 0.01)]
+            print("Imputing", len(ld_individuals), "LD individuals")
 
             flipped_dict = dict()
             reversed_ld = [ind.reverse_individual() for ind in ld_individuals]

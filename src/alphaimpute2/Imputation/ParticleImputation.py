@@ -30,7 +30,7 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
 
     missing_threshold = 0.5
     loci = get_non_missing_loci(jit_individuals, missing_threshold)
-    print(loci)
+    print("Loci list:", loci)
     
     # Sets up the haplotype reference library using only the loci in loci. 
     haplotype_library.setup_library(loci)
@@ -55,7 +55,6 @@ def get_non_missing_loci(individuals, threshold):
         for j in range(nInd):
             if individuals[j].genotypes[i] != 9:
                 count +=1
-
         if count > threshold*nInd:
             if loci is None:
                 loci = [i]
