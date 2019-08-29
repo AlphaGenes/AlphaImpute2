@@ -68,6 +68,8 @@ class AlphaImputeIndividual(Pedigree.Individual):
         else:
             self.phasing_view.backward[:,:] = np.flip(self.reverse_view.phasing_view.forward, axis = 1) # Flip along loci.
 
+
+
 spec = OrderedDict()
 spec['idn'] = int64
 spec['nLoci'] = int64

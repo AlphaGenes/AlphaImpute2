@@ -3,7 +3,7 @@ import numpy as np
 import random
 import concurrent.futures
 
-from numba import njit, jit, jitclass
+from numba import njit, jit, jitclass, prange
 from collections import OrderedDict
 from itertools import repeat
 
@@ -92,15 +92,17 @@ def split_individuals_into_groups(individuals, chunksize):
     groups = [individuals[start:(start+chunksize)] for start in range(0, len(individuals), chunksize)]
     return groups
 
-@jit(nopython=True, nogil=True) 
+
+# @jit(nopython=True, nogil=True) 
+@jit(nopython=True, nogil=True, parallel=True) 
 def phase_group(individuals, haplotype_library, set_haplotypes, n_samples):
     # Phases a group of individuals.
-    for ind in individuals:
-        phase(ind, haplotype_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
+    for i in prange(len(individuals)):
+        phase(individuals[i], haplotype_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
 
 
 @jit(nopython=True, nogil=True) 
-def phase(ind, haplotype_library, set_haplotypes = False, n_samples = 40) :
+def phase(ind, haplotype_library, set_haplotypes, n_samples) :
     # Phases a specific individual.
     # Set_haplotypes determines whether or not to actually set the haplotypes of an individual based on the underlying samples.
     # Set_haploypes also determines whether forward_geno_probs gets calculated.
