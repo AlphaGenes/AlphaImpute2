@@ -201,17 +201,20 @@ def haplib_sample(sample, bw_library, ind):
 
     sample.hap_info = HaplotypeInformation(bw_library)
     sample.forward = ForwardHaplotype(nLoci, bw_library.full_nLoci)
-    sample.rec = np.full(nLoci, 0, dtype = np.float32)
+    sample.rec = np.empty(nLoci, dtype = np.float32)
 
     previous_state = ((0, nHaps), (0, nHaps))
   
-    genotypes = np.full(nLoci, 9, dtype = np.int64)
+    genotypes = np.empty(nLoci, dtype = np.int8)
+    rec_states = np.empty(nLoci, dtype = np.int8)
+
     geno_probs = np.full((4,4), 1, dtype = np.float32) # Just create this once.
 
     ### Local variables.
     bw_loci = bw_library.loci
     zeroOccNext = bw_library.zeroOccNext
     nZeros = bw_library.nZeros
+    nHaps, nLoci = zeroOccNext.shape
 
     own_haplotypes = ind.own_haplotypes
     has_own_haplotypes = ind.has_own_haplotypes
@@ -255,7 +258,6 @@ def haplib_sample(sample, bw_library, ind):
         # Create a score that includes the genotype log-likelihood and the recombination log-likelihood.
 
 
-        nHaps, nLoci = zeroOccNext.shape
         # Get new states. We will need these later for selecting a state update.
         current_pat, current_mat, hap_lib = update_states(previous_state, index, nZeros, zeroOccNext)
 
@@ -288,7 +290,7 @@ def haplib_sample(sample, bw_library, ind):
 
         # Assign variables for the next iteration.
         genotypes[index] = selected_genotype
-
+        rec_states[index] = rec_state
         pat_ranges[0, index] = current_state[0][0]
         pat_ranges[1, index] = current_state[0][1]
 
@@ -301,97 +303,19 @@ def haplib_sample(sample, bw_library, ind):
 
         previous_state = current_state
     # Add the final set of states
-    # sample.hap_info.add_pat_sample(nLoci-1, current_state[0])
-    # sample.hap_info.add_mat_sample(nLoci-1, current_state[1])
+
+    track_hap_info = sample.track_hap_info
+    if track_hap_info:
+        for index in range(nLoci):          
+            if index > 0 and rec_states[index] > 0 and track_hap_info: 
+
+                previous_state = ((pat_ranges[0, index -1], pat_ranges[1, index -1]),(mat_ranges[0, index -1], mat_ranges[1, index -1]))
+                update_hap_info(sample.hap_info, index, rec_states[index], previous_state)
+
+        sample.hap_info.add_pat_sample(nLoci-1, current_state[0])
+        sample.hap_info.add_mat_sample(nLoci-1, current_state[1])
    
     return genotypes
-
-#### START CLASS FUNCTIONS
-
-
-# def sample_locus(self, previous_states, index, true_index, nZeros, zeroOccNext, rec_rate, has_own_haplotypes, exclusion, values, calculate_forward_estimates, forward_geno_probs, penetrance_and_backward):
-#     # Overall sampling pipeline:
-    
-#     # STATE UPDATE:
-#     # Take the current set of states and update them for the next loci.
-#     # This will split the states out into the states that are 0 or 1.
-    
-#     # GENOTYPE ESTIMATES:
-#     # Use the updated state information to estimate the genotypes.
-#     # Figure out the proportion of states that transalte to either 0 or 1.
-#     # Then construct a 4x4 matrix looking at combinations of recombinations and 
-
-#     # SAMPLE AND PROCESS:
-#     # Use the estimated values matrix to sample a genotype state and a recombination state.
-#     # Update the current states based on the genotype + recombination choice.
-#     # Create a score that includes the genotype log-likelihood and the recombination log-likelihood.
-
-#     nHaps, nLoci = zeroOccNext.shape
-
-#     # STATE UPDATE:
-
-#     current_pat, current_mat, hap_lib = update_states(previous_states, index, nZeros, zeroOccNext)
-
-
-#     # # Count the number of haplotypes for each genotype state. Exclude an individual's own genotype state.
-
-#     if has_own_haplotypes:
-#         # exclusion = (ind.own_haplotypes[0, true_index], ind.own_haplotypes[1, true_index]) 
-
-#         pat_counts = (count_haps_with_exclusion(current_pat[0], exclusion), count_haps_with_exclusion(current_pat[1], exclusion))
-#         mat_counts = (count_haps_with_exclusion(current_mat[0], exclusion), count_haps_with_exclusion(current_mat[1], exclusion))
-#         hap_lib_counts = (count_haps_with_exclusion(hap_lib[0], exclusion), count_haps_with_exclusion(hap_lib[1], exclusion))
-
-#     else:
-#         pat_counts = (count_haps(current_pat[0]), count_haps(current_pat[1]))
-#         mat_counts = (count_haps(current_mat[0]), count_haps(current_mat[1]))            
-#         hap_lib_counts = (count_haps(hap_lib[0]), count_haps(hap_lib[1]))
-    
-#     pat_prop = calculate_proportions(pat_counts)
-#     mat_prop = calculate_proportions(mat_counts)
-#     hap_lib_prop = calculate_proportions(hap_lib_counts)
-
-
-
-#     # GENOTYPE ESTIMATING
-#     # # Recombination ordering:
-#     # # nn, nr, rn, rr
-
-#     calculate_haps_probs(rec_rate, values, pat_prop, mat_prop, hap_lib_prop)
-
-#     if calculate_forward_estimates:
-#         calculate_forward_geno_probs(values, forward_geno_probs[:,true_index])
-
-#     for j in range(4):
-#         for i in range(4):
-#             # This is the individual's genotype probabilities. 
-#             values[i,j] *= penetrance_and_backward[j,true_index]
-
-
-
-#     # # SAMPLE AND PROCESS:
-#     new_value, value_sum = weighted_sample_2D(values)
-
-#     rec_state, selected_genotype = new_value
-#     observed_genotype = ind.genotypes[true_index]
-
-#     # Update the score based on the genotype and recombination value.
-#     score = 0
-#     score += score_from_genotype(observed_genotype, selected_genotype)
-#     score += score_from_rec_state(rec_state)
-
-
-
-#     new_state = get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib)
-
-
-
-#     # If there has been a recombination, update the haplotype info object.
-#     # if rec_state > 0 and self.track_hap_info: 
-#     #     self.update_hap_info(index, rec_state, previous_states)
-
-#     return new_state, selected_genotype, score        
-
 
 @jit(nopython = True, nogil=True)
 def add_penetrance(geno_probs, penetrance_and_backward):
@@ -536,12 +460,13 @@ def get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_li
     return new_state
 
 
-# def update_hap_info(self, index, rec_state, previous_states):
-#     if rec_state == 2 or rec_state == 3:
-#             self.hap_info.add_pat_sample(index-1, previous_states[0])
+@jit(nopython = True, nogil=True)
+def update_hap_info(hap_info, index, rec_state, previous_states):
+    if rec_state == 2 or rec_state == 3:
+            hap_info.add_pat_sample(index-1, previous_states[0])
 
-#     if rec_state == 1 or rec_state == 3:
-#         self.hap_info.add_mat_sample(index-1, previous_states[1])
+    if rec_state == 1 or rec_state == 3:
+        hap_info.add_mat_sample(index-1, previous_states[1])
 
 
 @jit(nopython = True, nogil=True)
@@ -694,14 +619,14 @@ def weighted_sample_1D(mat):
 ### This should probably be condensed and made better.
 ###
 
-# spec = OrderedDict()
+spec = OrderedDict()
 
-# tmp = PhasingSample(0.01, 0.01)
-# spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
-# spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
-# spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
+tmp = PhasingSample(0.01, 0.01)
+spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
+spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
+spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
 
-# @jitclass(spec)
+@jitclass(spec)
 class PhasingSampleContainer(object):
     def __init__(self, bw_library, ind):
         self.samples = None

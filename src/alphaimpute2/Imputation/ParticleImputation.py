@@ -3,7 +3,7 @@ import numpy as np
 import random
 import concurrent.futures
 
-from numba import njit, jit, jitclass
+from numba import njit, jit, jitclass, prange
 from collections import OrderedDict
 from itertools import repeat
 
@@ -37,10 +37,10 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
     impute_group(jit_individuals, haplotype_library.library, n_samples)
 
 
-@jit(nopython=True, nogil=True) 
+@jit(nopython=True, nogil=True, parallel = True) 
 def impute_group(individuals, library, n_samples):
-    for ind in individuals:
-        impute(ind, library, n_samples)
+    for i in range(len(individuals)):
+        impute(individuals[i], library, n_samples)
 
 
 @jit(nopython=True, nogil=True) 

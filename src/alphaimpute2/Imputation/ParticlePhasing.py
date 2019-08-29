@@ -94,15 +94,14 @@ def split_individuals_into_groups(individuals, chunksize):
 
 
 # @jit(nopython=True, nogil=True) 
-# @jit(nopython=True, nogil=True, parallel=True) 
+@jit(nopython=True, nogil=True, parallel=True) 
 def phase_group(individuals, haplotype_library, set_haplotypes, n_samples):
     # Phases a group of individuals.
     for i in range(len(individuals)):
         phase(individuals[i], haplotype_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
 
 
-# @jit(nopython=True, nogil=True) 
-@profile
+@jit(nopython=True, nogil=True) 
 def phase(ind, haplotype_library, set_haplotypes, n_samples) :
     # Phases a specific individual.
     # Set_haplotypes determines whether or not to actually set the haplotypes of an individual based on the underlying samples.
