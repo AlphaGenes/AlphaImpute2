@@ -106,65 +106,6 @@ class HaplotypeInformation(object):
 
         return global_start, global_end
 
-    # This was some old code to help with haplotype merging.
-
-    # def get_mean_haplotype_length(self):
-    #     val = 0
-    #     for i in range(len(self.pat_ranges)):
-    #         global_start, global_end = self.get_global_bounds(i, 0)
-    #         val += global_end - global_start
-
-    #     return val/len(self.pat_ranges)
-
-    # def setup_global_matrix(self):
-    #     self.range_index = np.full((2, self.bw_library.full_nLoci), -1, dtype = np.int64)
-    #     self.residual_length = np.full((2, self.bw_library.full_nLoci), -1, dtype = np.int64)
-        
-    #     for hap in range(2):
-    #         if hap == 0:
-    #             ranges = self.pat_ranges
-    #         if hap == 1:
-    #             ranges = self.mat_ranges
-
-    #         for i in range(len(ranges)):
-    #             global_start, global_end = self.get_global_bounds(i, hap)
-    #             self.range_index[hap, global_start:global_end] = i
-    #             self.residual_length[hap, global_start:global_end] = np.arange(global_end - global_start) + 1
-
-
-    # def check_inclusion(self, ref_hap, index, hap):
-    #     if ref_hap < 0: 
-    #         return 0
-        
-    #     if hap == 0:
-    #         ranges = self.pat_ranges
-    #     if hap == 1:
-    #         ranges = self.mat_ranges
-
-    #     range_object = ranges[self.range_index[hap, index]]
-    #     encoded_hap = self.bw_library.reverse_library[ref_hap, range_object.encoding_index]
-
-    #     contains_hap = (range_object.hap_range[0] <= encoded_hap) and (encoded_hap < range_object.hap_range[1])
-
-    #     if not contains_hap: 
-    #         return 0
-    #     else:
-    #         return self.residual_length[hap, index]
-
-    # def get_random_haplotype(self, index, hap):
-
-    #     if hap == 0:
-    #         ranges = self.pat_ranges
-    #     if hap == 1:
-    #         ranges = self.mat_ranges
-
-    #     range_object = ranges[self.range_index[hap, index]]
-    #     # print(range_object.hap_range)
-    #     encoded_hap = np.random.randint(range_object.hap_range[0], range_object.hap_range[1])
-    #     output_hap = self.bw_library.a[encoded_hap, range_object.encoding_index]
-    #     return output_hap
-
-
 spec = OrderedDict()
 
 # Potentially, I think we can kill this structure and re-integrate it with the sample.
@@ -210,7 +151,6 @@ spec['track_hap_info'] = numba.boolean
 
 @jitclass(spec)
 class PhasingSample(object):
-
     def __init__(self, rec_rate, error_rate):
         self.rec_rate = rec_rate
         self.error_rate = error_rate
@@ -225,65 +165,81 @@ class PhasingSample(object):
 
 
     def sample(self, bw_library, ind):
-        raw_genotypes = self.haplib_sample(bw_library, ind)
-        self.haplotypes = self.get_haplotypes(raw_genotypes)
+        raw_genotypes = haplib_sample(self, bw_library, ind)
+        self.haplotypes = get_haplotypes(raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
 
-    def get_haplotypes(self, raw_genotypes):
-        nLoci = len(raw_genotypes)
-        pat_hap = np.full(nLoci, 9, dtype = np.int8)
-        mat_hap = np.full(nLoci, 9, dtype = np.int8)
+@jit(nopython = True, nogil=True)
+def get_haplotypes(raw_genotypes):
+    nLoci = len(raw_genotypes)
+    pat_hap = np.full(nLoci, 9, dtype = np.int8)
+    mat_hap = np.full(nLoci, 9, dtype = np.int8)
 
-        for i in range(nLoci):
-            geno = raw_genotypes[i]
-            if geno == 0:
-                pat_hap[i] = 0
-                mat_hap[i] = 0
-            if geno == 1:
-                pat_hap[i] = 0
-                mat_hap[i] = 1
-            if geno == 2:
-                pat_hap[i] = 1
-                mat_hap[i] = 0
-            if geno == 3:
-                pat_hap[i] = 1
-                mat_hap[i] = 1
-        return pat_hap, mat_hap
-
-
-    def haplib_sample(self, bw_library, ind):
-        nHaps, nLoci = bw_library.a.shape
-
-        self.hap_info = HaplotypeInformation(bw_library)
-        self.forward = ForwardHaplotype(nLoci, bw_library.full_nLoci)
-        self.rec = np.full(nLoci, 0, dtype = np.float32)
-
-        current_state = ((0, nHaps), (0, nHaps))
-      
-        genotypes = np.full(nLoci, 9, dtype = np.int64)
-        values = np.full((4,4), 1, dtype = np.float32) # Just create this once.
-
-        for i in range(nLoci):
-            current_state, geno, self.rec[i] = self.sample_locus(current_state, i, bw_library, ind, values)
-            genotypes[i] = geno
-
-            self.forward.pat_ranges[0, i] = current_state[0][0]
-            self.forward.pat_ranges[1, i] = current_state[0][1]
-
-            self.forward.mat_ranges[0, i] = current_state[1][0]
-            self.forward.mat_ranges[1, i] = current_state[1][1]
+    for i in range(nLoci):
+        geno = raw_genotypes[i]
+        if geno == 0:
+            pat_hap[i] = 0
+            mat_hap[i] = 0
+        if geno == 1:
+            pat_hap[i] = 0
+            mat_hap[i] = 1
+        if geno == 2:
+            pat_hap[i] = 1
+            mat_hap[i] = 0
+        if geno == 3:
+            pat_hap[i] = 1
+            mat_hap[i] = 1
+    return pat_hap, mat_hap
 
 
-        # Add the final set of states
-        self.hap_info.add_pat_sample(nLoci-1, current_state[0])
-        self.hap_info.add_mat_sample(nLoci-1, current_state[1])
-       
-        return genotypes
 
+@jit(nopython = True, nogil=True)
+def haplib_sample(sample, bw_library, ind):
+    #### So this is going to get sorta ugly pretty fast.
 
-    def sample_locus(self, previous_states, index, bw_library, ind, values):
+    nHaps, nLoci = bw_library.a.shape
+
+    sample.hap_info = HaplotypeInformation(bw_library)
+    sample.forward = ForwardHaplotype(nLoci, bw_library.full_nLoci)
+    sample.rec = np.full(nLoci, 0, dtype = np.float32)
+
+    previous_state = ((0, nHaps), (0, nHaps))
+  
+    genotypes = np.full(nLoci, 9, dtype = np.int64)
+    geno_probs = np.full((4,4), 1, dtype = np.float32) # Just create this once.
+
+    ### Local variables.
+    bw_loci = bw_library.loci
+    zeroOccNext = bw_library.zeroOccNext
+    nZeros = bw_library.nZeros
+
+    own_haplotypes = ind.own_haplotypes
+    has_own_haplotypes = ind.has_own_haplotypes
+
+    rec_rate = sample.rec_rate # Constant.
+    calculate_forward_estimates = sample.calculate_forward_estimates
+
+    forward_geno_probs = sample.forward.forward_geno_probs
+    penetrance_and_backward = ind.penetrance*ind.backward
+
+    ind_genotypes = ind.genotypes
+
+    match_score = sample.match_score
+    no_match_score = sample.no_match_score
+
+    rec_score = sample.rec_score
+    no_rec_score = sample.no_rec_score
+ 
+    rec = sample.rec
+
+    pat_ranges = sample.forward.pat_ranges
+    mat_ranges = sample.forward.mat_ranges
+
+    for index in range(nLoci):
+
+        true_index = bw_loci[index]
         # Overall sampling pipeline:
-        
+    
         # STATE UPDATE:
         # Take the current set of states and update them for the next loci.
         # This will split the states out into the states that are 0 or 1.
@@ -294,195 +250,321 @@ class PhasingSample(object):
         # Then construct a 4x4 matrix looking at combinations of recombinations and 
 
         # SAMPLE AND PROCESS:
-        # Use the estimated values matrix to sample a genotype state and a recombination state.
+        # Use the estimated geno_probs matrix to sample a genotype state and a recombination state.
         # Update the current states based on the genotype + recombination choice.
         # Create a score that includes the genotype log-likelihood and the recombination log-likelihood.
 
 
-        rec_rate = self.rec_rate
-        true_index = bw_library.get_true_index(index)
-        nHaps, nLoci = bw_library.a.shape
+        nHaps, nLoci = zeroOccNext.shape
+        # Get new states. We will need these later for selecting a state update.
+        current_pat, current_mat, hap_lib = update_states(previous_state, index, nZeros, zeroOccNext)
 
-        # STATE UPDATE:
+        # Calculate genotype propotions for the next state, potentially excluding an individual's own haplotype.
+        exclusion = (own_haplotypes[0, true_index], own_haplotypes[1, true_index]) 
+        pat_prop, mat_prop, hap_lib_prop = get_proportions(current_pat, current_mat, hap_lib, has_own_haplotypes, exclusion)
 
-        current_pat, current_mat, hap_lib = self.update_states(previous_states, index, bw_library)
+        # Calculate genotype probabilities. 
+        calculate_haps_probs(rec_rate, geno_probs, pat_prop, mat_prop, hap_lib_prop)
 
+        if calculate_forward_estimates:
+            calculate_forward_geno_probs(geno_probs, forward_geno_probs[:,true_index])
 
-        # # Count the number of haplotypes for each genotype state. Exclude an individual's own genotype state.
+        add_penetrance(geno_probs, penetrance_and_backward[:,true_index])
 
-        if ind.has_own_haplotypes:
-            exclusion = (ind.own_haplotypes[0, true_index], ind.own_haplotypes[1, true_index]) 
-
-            pat_counts = (count_haps_with_exclusion(current_pat[0], exclusion), count_haps_with_exclusion(current_pat[1], exclusion))
-            mat_counts = (count_haps_with_exclusion(current_mat[0], exclusion), count_haps_with_exclusion(current_mat[1], exclusion))
-            hap_lib_counts = (count_haps_with_exclusion(hap_lib[0], exclusion), count_haps_with_exclusion(hap_lib[1], exclusion))
-
-        else:
-            pat_counts = (count_haps(current_pat[0]), count_haps(current_pat[1]))
-            mat_counts = (count_haps(current_mat[0]), count_haps(current_mat[1]))            
-            hap_lib_counts = (count_haps(hap_lib[0]), count_haps(hap_lib[1]))
-        
-        pat_prop = self.calculate_proportions(pat_counts)
-        mat_prop = self.calculate_proportions(mat_counts)
-        hap_lib_prop = self.calculate_proportions(hap_lib_counts)
+        # Select a new sample. 
+        rec_state, selected_genotype = weighted_sample_2D(geno_probs)
 
 
-
-        # GENOTYPE ESTIMATING
-        # # Recombination ordering:
-        # # nn, nr, rn, rr
-
-        self.calculate_haps_probs(values, pat_prop, mat_prop, hap_lib_prop, ind)
-
-        if self.calculate_forward_estimates:
-            calculate_forward_geno_probs(values, self.forward.forward_geno_probs[:,true_index])
-
-        for j in range(4):
-            for i in range(4):
-                # This is the individual's genotype probabilities. 
-                values[i,j] *= ind.penetrance[j,true_index] * ind.backward[j, true_index]
-
-
-
-        # # SAMPLE AND PROCESS:
-        new_value, value_sum = weighted_sample_2D(values)
-
-        rec_state, selected_genotype = new_value
-        observed_genotype = ind.genotypes[true_index]
-
-        # Update the score based on the genotype and recombination value.
+        # Calculate the score for the locus.
         score = 0
-        score += self.score_from_genotype(observed_genotype, selected_genotype)
-        score += self.score_from_rec_state(rec_state)
+        observed_genotype = ind_genotypes[true_index]
+        score += score_from_genotype(observed_genotype, selected_genotype, match_score, no_match_score)
+        score += score_from_rec_state(rec_state, rec_score, no_rec_score)
+        rec[index] = score
+
+        # get the next set of states.
+        current_state = get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib)
 
 
+        # Assign variables for the next iteration.
+        genotypes[index] = selected_genotype
 
-        new_state = self.get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib)
+        pat_ranges[0, index] = current_state[0][0]
+        pat_ranges[1, index] = current_state[0][1]
 
-
-
-        # If there has been a recombination, update the haplotype info object.
-        if rec_state > 0 and self.track_hap_info: 
-            self.update_hap_info(index, rec_state, previous_states)
-
- 
-
-        # return (hap_lib[0], hap_lib[0]), 1, 4
-        return new_state, selected_genotype, score        
+        mat_ranges[0, index] = current_state[1][0]
+        mat_ranges[1, index] = current_state[1][1]
 
     
-    def calculate_haps_probs(self, values, pat_prop, mat_prop, hap_lib_prop, ind):
+        # if rec_state > 0 and self.track_hap_info: 
+        #     self.update_hap_info(index, rec_state, previous_states)
 
-        rec_rate = self.rec_rate
-        # # Recombination ordering:
-        # # nn, nr, rn, rr
+        previous_state = current_state
+    # Add the final set of states
+    # sample.hap_info.add_pat_sample(nLoci-1, current_state[0])
+    # sample.hap_info.add_mat_sample(nLoci-1, current_state[1])
+   
+    return genotypes
 
-        self.fill_values(values[0,:], pat_prop, mat_prop, (1-rec_rate)*(1-rec_rate))
-        self.fill_values(values[1,:], pat_prop, hap_lib_prop, (1-rec_rate)*rec_rate)  
-        self.fill_values(values[2,:], hap_lib_prop, mat_prop, rec_rate*(1-rec_rate))
-        self.fill_values(values[3,:], hap_lib_prop, hap_lib_prop, rec_rate*rec_rate) 
-
-
-
-    def fill_values(self, sub_values, pat_prob, mat_prop, scale):
-        sub_values[0] = pat_prob[0] * mat_prop[0] * scale
-        sub_values[1] = pat_prob[0] * mat_prop[1] * scale
-        sub_values[2] = pat_prob[1] * mat_prop[0] * scale
-        sub_values[3] = pat_prob[1] * mat_prop[1] * scale
+#### START CLASS FUNCTIONS
 
 
-    def calculate_proportions(self, hap_counts):
-
-        if hap_counts[0] + hap_counts[1] > 0:
-            prop_0 = hap_counts[0]/(hap_counts[0] + hap_counts[1])
-            prop_1 = hap_counts[1]/(hap_counts[0] + hap_counts[1])
-        else:
-            prop_0 = 0
-            prop_1 = 0
-
-        return (prop_0, prop_1)
-
-
-
-    def score_from_genotype(self, observed_genotype, selected_genotype):
-        match_score = self.match_score
-        no_match_score = self.no_match_score
-        score = 0
-
-        if observed_genotype != 9:
-            error = True
-            if observed_genotype == 0 and selected_genotype == 0:
-                error = False
-            elif observed_genotype == 1 and (selected_genotype == 1 or selected_genotype == 2):
-                error = False
-            elif observed_genotype == 2 and selected_genotype == 3:
-                error = False
-
-            if error:
-                score = no_match_score
-            else:
-                score = match_score
-
-        return -score
-
-
-    def score_from_rec_state(self, rec_state):
-        rec_score = self.rec_score
-        no_rec_score = self.no_rec_score
-
-        if rec_state == 0:
-            score = 2*no_rec_score 
-
-        if rec_state == 1 or rec_state == 2:
-            score = rec_score + no_rec_score # We search for lowest score
-
-        if rec_state == 3:
-            score = 2*rec_score 
-        return -score
-
-
-    def get_new_state(self, selected_genotype, rec_state, current_pat, current_mat, hap_lib):
-        # Hap info is a sizeable amount of time.
-
-        pat_value, mat_value = decode_genotype(selected_genotype) # Split out the genotype value into pat/mat states
-
-        if rec_state == 0 or rec_state == 1:
-            # No paternal recombination.
-            pat_haps = current_pat[pat_value]
-        else:
-            # Paternal recombination
-            pat_haps = hap_lib[pat_value]
-
-        if rec_state == 0 or rec_state == 2:
-            # No maternal recombination.
-            mat_haps = current_mat[mat_value]
-        else:
-            # maternal recombination
-            mat_haps = hap_lib[mat_value]
-
-        new_state = (pat_haps, mat_haps)
-        return new_state
-
+# def sample_locus(self, previous_states, index, true_index, nZeros, zeroOccNext, rec_rate, has_own_haplotypes, exclusion, values, calculate_forward_estimates, forward_geno_probs, penetrance_and_backward):
+#     # Overall sampling pipeline:
     
-    def update_hap_info(self, index, rec_state, previous_states):
-        if rec_state == 2 or rec_state == 3:
-                self.hap_info.add_pat_sample(index-1, previous_states[0])
+#     # STATE UPDATE:
+#     # Take the current set of states and update them for the next loci.
+#     # This will split the states out into the states that are 0 or 1.
+    
+#     # GENOTYPE ESTIMATES:
+#     # Use the updated state information to estimate the genotypes.
+#     # Figure out the proportion of states that transalte to either 0 or 1.
+#     # Then construct a 4x4 matrix looking at combinations of recombinations and 
 
-        if rec_state == 1 or rec_state == 3:
-            self.hap_info.add_mat_sample(index-1, previous_states[1])
+#     # SAMPLE AND PROCESS:
+#     # Use the estimated values matrix to sample a genotype state and a recombination state.
+#     # Update the current states based on the genotype + recombination choice.
+#     # Create a score that includes the genotype log-likelihood and the recombination log-likelihood.
+
+#     nHaps, nLoci = zeroOccNext.shape
+
+#     # STATE UPDATE:
+
+#     current_pat, current_mat, hap_lib = update_states(previous_states, index, nZeros, zeroOccNext)
 
 
-    def update_states(self, current_states, index, bw_library):
-        hap_lib = bw_library.get_null_state(index)
+#     # # Count the number of haplotypes for each genotype state. Exclude an individual's own genotype state.
 
-        if index != 0:
-            current_pat = bw_library.update_state(current_states[0], index)
-            current_mat = bw_library.update_state(current_states[1], index)
+#     if has_own_haplotypes:
+#         # exclusion = (ind.own_haplotypes[0, true_index], ind.own_haplotypes[1, true_index]) 
+
+#         pat_counts = (count_haps_with_exclusion(current_pat[0], exclusion), count_haps_with_exclusion(current_pat[1], exclusion))
+#         mat_counts = (count_haps_with_exclusion(current_mat[0], exclusion), count_haps_with_exclusion(current_mat[1], exclusion))
+#         hap_lib_counts = (count_haps_with_exclusion(hap_lib[0], exclusion), count_haps_with_exclusion(hap_lib[1], exclusion))
+
+#     else:
+#         pat_counts = (count_haps(current_pat[0]), count_haps(current_pat[1]))
+#         mat_counts = (count_haps(current_mat[0]), count_haps(current_mat[1]))            
+#         hap_lib_counts = (count_haps(hap_lib[0]), count_haps(hap_lib[1]))
+    
+#     pat_prop = calculate_proportions(pat_counts)
+#     mat_prop = calculate_proportions(mat_counts)
+#     hap_lib_prop = calculate_proportions(hap_lib_counts)
+
+
+
+#     # GENOTYPE ESTIMATING
+#     # # Recombination ordering:
+#     # # nn, nr, rn, rr
+
+#     calculate_haps_probs(rec_rate, values, pat_prop, mat_prop, hap_lib_prop)
+
+#     if calculate_forward_estimates:
+#         calculate_forward_geno_probs(values, forward_geno_probs[:,true_index])
+
+#     for j in range(4):
+#         for i in range(4):
+#             # This is the individual's genotype probabilities. 
+#             values[i,j] *= penetrance_and_backward[j,true_index]
+
+
+
+#     # # SAMPLE AND PROCESS:
+#     new_value, value_sum = weighted_sample_2D(values)
+
+#     rec_state, selected_genotype = new_value
+#     observed_genotype = ind.genotypes[true_index]
+
+#     # Update the score based on the genotype and recombination value.
+#     score = 0
+#     score += score_from_genotype(observed_genotype, selected_genotype)
+#     score += score_from_rec_state(rec_state)
+
+
+
+#     new_state = get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib)
+
+
+
+#     # If there has been a recombination, update the haplotype info object.
+#     # if rec_state > 0 and self.track_hap_info: 
+#     #     self.update_hap_info(index, rec_state, previous_states)
+
+#     return new_state, selected_genotype, score        
+
+
+@jit(nopython = True, nogil=True)
+def add_penetrance(geno_probs, penetrance_and_backward):
+    for j in range(4):
+        for i in range(4):
+            # This is the individual's genotype probabilities. 
+            geno_probs[i,j] *= penetrance_and_backward[j]
+
+
+
+@jit(nopython = True, nogil=True)
+def get_proportions(current_pat, current_mat, hap_lib, has_own_haplotypes, exclusion):
+
+    if has_own_haplotypes:
+        # exclusion = (ind.own_haplotypes[0, true_index], ind.own_haplotypes[1, true_index]) 
+
+        pat_counts = (count_haps_with_exclusion(current_pat[0], exclusion), count_haps_with_exclusion(current_pat[1], exclusion))
+        mat_counts = (count_haps_with_exclusion(current_mat[0], exclusion), count_haps_with_exclusion(current_mat[1], exclusion))
+        hap_lib_counts = (count_haps_with_exclusion(hap_lib[0], exclusion), count_haps_with_exclusion(hap_lib[1], exclusion))
+
+    else:
+        pat_counts = (count_haps(current_pat[0]), count_haps(current_pat[1]))
+        mat_counts = (count_haps(current_mat[0]), count_haps(current_mat[1]))            
+        hap_lib_counts = (count_haps(hap_lib[0]), count_haps(hap_lib[1]))
+    
+    pat_prop = calculate_proportions(pat_counts)
+    mat_prop = calculate_proportions(mat_counts)
+    hap_lib_prop = calculate_proportions(hap_lib_counts)
+
+    return pat_prop, mat_prop, hap_lib_prop
+
+
+
+@jit(nopython = True, nogil=True)
+def count_haps(haplotypes):
+    return haplotypes[1] - haplotypes[0]
+
+@jit(nopython = True, nogil=True)
+def count_haps_with_exclusion(haplotypes, exclusion):
+
+    base_count = haplotypes[1] - haplotypes[0]
+    # Only two haplotypes to exclude. May need to expand later.
+    if exclusion[0] >= haplotypes[0] and exclusion[0] < haplotypes[1]:
+        base_count -=1
+
+    if exclusion[1] >= haplotypes[0] and exclusion[1] < haplotypes[1]:
+        base_count -=1
+
+    return base_count
+
+
+@jit(nopython = True, nogil=True)
+def calculate_proportions(hap_counts):
+
+    if hap_counts[0] + hap_counts[1] > 0:
+        prop_0 = hap_counts[0]/(hap_counts[0] + hap_counts[1])
+        prop_1 = hap_counts[1]/(hap_counts[0] + hap_counts[1])
+    else:
+        prop_0 = 0
+        prop_1 = 0
+
+    return (prop_0, prop_1)
+
+
+@jit(nopython = True, nogil=True)
+def calculate_haps_probs(rec_rate, values, pat_prop, mat_prop, hap_lib_prop):
+
+    # # Recombination ordering:
+    # # nn, nr, rn, rr
+
+    fill_values(values[0,:], pat_prop, mat_prop, (1-rec_rate)*(1-rec_rate))
+    fill_values(values[1,:], pat_prop, hap_lib_prop, (1-rec_rate)*rec_rate)  
+    fill_values(values[2,:], hap_lib_prop, mat_prop, rec_rate*(1-rec_rate))
+    fill_values(values[3,:], hap_lib_prop, hap_lib_prop, rec_rate*rec_rate) 
+
+
+
+@jit(nopython = True, nogil=True)
+def fill_values(sub_values, pat_prob, mat_prop, scale):
+    sub_values[0] = pat_prob[0] * mat_prop[0] * scale
+    sub_values[1] = pat_prob[0] * mat_prop[1] * scale
+    sub_values[2] = pat_prob[1] * mat_prop[0] * scale
+    sub_values[3] = pat_prob[1] * mat_prop[1] * scale
+
+
+@jit(nopython = True, nogil=True)
+def score_from_genotype(observed_genotype, selected_genotype, match_score, no_match_score):
+    score = 0
+
+    if observed_genotype != 9:
+        error = True
+        if observed_genotype == 0 and selected_genotype == 0:
+            error = False
+        elif observed_genotype == 1 and (selected_genotype == 1 or selected_genotype == 2):
+            error = False
+        elif observed_genotype == 2 and selected_genotype == 3:
+            error = False
+
+        if error:
+            score = no_match_score
         else:
-            current_pat = hap_lib
-            current_mat = hap_lib
-        
-        return current_pat, current_mat, hap_lib
+            score = match_score
+
+    return -score
+
+
+@jit(nopython = True, nogil=True)
+def score_from_rec_state(rec_state, rec_score, no_rec_score):
+
+    if rec_state == 0:
+        score = 2*no_rec_score 
+
+    if rec_state == 1 or rec_state == 2:
+        score = rec_score + no_rec_score # We search for lowest score
+
+    if rec_state == 3:
+        score = 2*rec_score 
+    return -score
+
+
+@jit(nopython = True, nogil=True)
+def get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib):
+    # Hap info is a sizeable amount of time.
+
+    pat_value, mat_value = decode_genotype(selected_genotype) # Split out the genotype value into pat/mat states
+
+    if rec_state == 0 or rec_state == 1:
+        # No paternal recombination.
+        pat_haps = current_pat[pat_value]
+    else:
+        # Paternal recombination
+        pat_haps = hap_lib[pat_value]
+
+    if rec_state == 0 or rec_state == 2:
+        # No maternal recombination.
+        mat_haps = current_mat[mat_value]
+    else:
+        # maternal recombination
+        mat_haps = hap_lib[mat_value]
+
+    new_state = (pat_haps, mat_haps)
+    return new_state
+
+
+# def update_hap_info(self, index, rec_state, previous_states):
+#     if rec_state == 2 or rec_state == 3:
+#             self.hap_info.add_pat_sample(index-1, previous_states[0])
+
+#     if rec_state == 1 or rec_state == 3:
+#         self.hap_info.add_mat_sample(index-1, previous_states[1])
+
+
+@jit(nopython = True, nogil=True)
+def update_states(current_states, index, nZeros, zeroOccNext):
+    hap_lib = BurrowsWheelerLibrary.get_null_state(index, nZeros, zeroOccNext)
+
+    if index != 0:
+        current_pat = BurrowsWheelerLibrary.update_state(current_states[0], index, nZeros, zeroOccNext)
+        current_mat = BurrowsWheelerLibrary.update_state(current_states[1], index, nZeros, zeroOccNext)
+    else:
+        current_pat = hap_lib
+        current_mat = hap_lib
+    
+    return current_pat, current_mat, hap_lib
+
+
+
+
+
+
+#### END CLASS FUNCTIONS
+
+
 
 @jit(nopython=True, nogil=True) 
 def decode_genotype(geno):
@@ -540,24 +622,6 @@ def get_haplotypes(raw_genotypes):
             mat_hap[i] = 1
     return pat_hap, mat_hap
 
-
-@jit(nopython = True)
-def count_haps(haplotypes):
-    return haplotypes[1] - haplotypes[0]
-
-@jit(nopython = True)
-def count_haps_with_exclusion(haplotypes, exclusion):
-
-    base_count = haplotypes[1] - haplotypes[0]
-    # Only two haplotypes to exclude. May need to expand later.
-    if exclusion[0] >= haplotypes[0] and exclusion[0] < haplotypes[1]:
-        base_count -=1
-
-    if exclusion[1] >= haplotypes[0] and exclusion[1] < haplotypes[1]:
-        base_count -=1
-
-    return base_count
-
 @jit(nopython=True, nogil=True) 
 def get_haps_probs(values, pat_haps, mat_haps, scale):
     # scale accounts for recombination rates.
@@ -592,16 +656,18 @@ def weighted_sample_2D(mat):
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
             total += mat[i, j]
+    if total == 0:
+        return (-1, -1)
     value = random.random()*total
 
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
             value -= mat[i,j]
             if value < 0:
-                return (i, j), total
+                return (i, j)
 
 
-    return (0,0), total
+    return (0,0)
 
 
 @jit(nopython=True, nogil=True) 
@@ -628,20 +694,20 @@ def weighted_sample_1D(mat):
 ### This should probably be condensed and made better.
 ###
 
-spec = OrderedDict()
+# spec = OrderedDict()
 
-tmp = PhasingSample(0.01, 0.01)
-spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
-spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
-spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
+# tmp = PhasingSample(0.01, 0.01)
+# spec['samples'] = numba.optional(numba.typeof([tmp, tmp]))
+# spec['bw_library'] = numba.typeof(BurrowsWheelerLibrary.get_example_library().library)
+# spec['ind'] = numba.typeof(ImputationIndividual.get_example_phasing_individual())
 
-@jitclass(spec)
+# @jitclass(spec)
 class PhasingSampleContainer(object):
     def __init__(self, bw_library, ind):
         self.samples = None
         self.bw_library = bw_library
         self.ind = ind
-
+    @profile
     def add_sample(self, rate, error_rate, calculate_forward_estimates, track_hap_info):
         new_sample = PhasingSample(rate, error_rate)
         new_sample.calculate_forward_estimates = calculate_forward_estimates
@@ -653,6 +719,7 @@ class PhasingSampleContainer(object):
         else:
             self.samples += [new_sample]
 
+    @profile
     def get_consensus(self, sample_size):
         if len(self.samples) == 1:
             return self.samples[0].haplotypes
@@ -672,111 +739,115 @@ class PhasingSampleContainer(object):
             rec_scores[i, :] = count_regional_rec(self.samples[i].rec, sample_size)
 
         # genotypes = self.get_consensus_genotypes(haplotypes)
-        genotypes = self.get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores)
-        return self.get_consensus_haplotype(haplotypes, genotypes)
+        genotypes = get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores)
+        return get_consensus_haplotype(haplotypes, genotypes)
 
-    def get_consensus_haplotype(self, haplotypes, genotypes):
-        nHaps, tmp, nLoci = haplotypes.shape
-        alignment = np.full(nHaps, 0, dtype = np.int8)
-        
-        haps = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
+@jit(nopython=True, nogil=True) 
+def get_consensus_haplotype(haplotypes, genotypes):
+    nHaps, tmp, nLoci = haplotypes.shape
+    alignment = np.full(nHaps, 0, dtype = np.int8)
+    
+    haps = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
 
-        for i in range(nLoci):
-            if genotypes[i] == 0:
-                haps[0][i] = 0
-                haps[1][i] = 0
-            if genotypes[i] == 2:
-                haps[0][i] = 1
-                haps[1][i] = 1
+    for i in range(nLoci):
+        if genotypes[i] == 0:
+            haps[0][i] = 0
+            haps[1][i] = 0
+        if genotypes[i] == 2:
+            haps[0][i] = 1
+            haps[1][i] = 1
 
-            if genotypes[i] == 1:
-                count0 = 0
-                count1 = 0
+        if genotypes[i] == 1:
+            count0 = 0
+            count1 = 0
 
-                for j in range(nHaps):
-                    geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
-                    if geno == 1:
-                        # If the genotype is not 1, throw out the haplotype for this loci.
-                        if haplotypes[j, alignment[j], i] == 0:
-                            count0 += 1
-                        else:
-                            count1 += 1
-
-                # Set the haplotype
-                if count0 >= count1:
-                    haps[0][i] = 0
-                    haps[1][i] = 1
-                else:
-                    haps[0][i] = 1
-                    haps[1][i] = 0
-
-                # Set alignment:
-                for j in range(nHaps):
-                    geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
-                    if geno == 1:
-                        if haplotypes[j, 0, i] == haps[0][i]:
-                            alignment[j] = 0
-                        else:
-                            alignment[j] = 1
-
-        return haps
-
-    def get_consensus_genotypes(self, haplotypes):
-        nHaps, tmp, nLoci = haplotypes.shape
-        genotypes = np.full(nLoci, 0, dtype = np.int8)
-        p = np.full(3, 0, dtype = np.int32)
-        for i in range(nLoci):
-            p[:] = 0
             for j in range(nHaps):
+                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
+                if geno == 1:
+                    # If the genotype is not 1, throw out the haplotype for this loci.
+                    if haplotypes[j, alignment[j], i] == 0:
+                        count0 += 1
+                    else:
+                        count1 += 1
+
+            # Set the haplotype
+            if count0 >= count1:
+                haps[0][i] = 0
+                haps[1][i] = 1
+            else:
+                haps[0][i] = 1
+                haps[1][i] = 0
+
+            # Set alignment:
+            for j in range(nHaps):
+                geno = haplotypes[j, 0, i] + haplotypes[j, 1, i] 
+                if geno == 1:
+                    if haplotypes[j, 0, i] == haps[0][i]:
+                        alignment[j] = 0
+                    else:
+                        alignment[j] = 1
+
+    return haps
+
+@jit(nopython=True, nogil=True) 
+def get_consensus_genotypes(haplotypes):
+    nHaps, tmp, nLoci = haplotypes.shape
+    genotypes = np.full(nLoci, 0, dtype = np.int8)
+    p = np.full(3, 0, dtype = np.int32)
+    for i in range(nLoci):
+        p[:] = 0
+        for j in range(nHaps):
+            geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
+            p[geno] += 1
+
+        genotypes[i] = get_max_index(p)
+
+    return genotypes
+
+
+@jit(nopython=True, nogil=True) 
+def get_consensus_genotypes_max_path_length(haplotypes, rec_scores):
+    nHaps, tmp, nLoci = haplotypes.shape
+
+    genotypes = np.full(nLoci, 0, dtype = np.int8)
+    for i in range(nLoci):
+        
+        score = 0    
+        index = 0
+        for j in range(nHaps):
+            if rec_scores[j, i] > score:
+                score = rec_scores[j, i]
+                index = j
+        genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
+
+    return genotypes
+
+
+@jit(nopython=True, nogil=True) 
+def get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores):
+    nHaps, tmp, nLoci = haplotypes.shape
+
+    genotypes = np.full(nLoci, 0, dtype = np.int8)
+    
+    p = np.full(3, 0, dtype = np.int32)
+
+    for i in range(nLoci):
+        
+        score = nLoci    
+        index = 0
+        for j in range(nHaps):
+            if rec_scores[j, i]< score:
+                score = rec_scores[j, i]
+        p[:] = 0
+        count = 0
+        for j in range(nHaps):
+            if rec_scores[j, i] == score:
                 geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
                 p[geno] += 1
+                count +=1
+        genotypes[i] = get_max_index(p)
 
-            genotypes[i] = get_max_index(p)
-
-        return genotypes
-
-
-    def get_consensus_genotypes_max_path_length(self, haplotypes, rec_scores):
-        nHaps, tmp, nLoci = haplotypes.shape
-
-        genotypes = np.full(nLoci, 0, dtype = np.int8)
-        for i in range(nLoci):
-            
-            score = 0    
-            index = 0
-            for j in range(nHaps):
-                if rec_scores[j, i] > score:
-                    score = rec_scores[j, i]
-                    index = j
-            genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
-
-        return genotypes
-
-
-    def get_consensus_genotypes_smallest_region_rec(self, haplotypes, rec_scores):
-        nHaps, tmp, nLoci = haplotypes.shape
-
-        genotypes = np.full(nLoci, 0, dtype = np.int8)
-        
-        p = np.full(3, 0, dtype = np.int32)
-
-        for i in range(nLoci):
-            
-            score = nLoci    
-            index = 0
-            for j in range(nHaps):
-                if rec_scores[j, i]< score:
-                    score = rec_scores[j, i]
-            p[:] = 0
-            count = 0
-            for j in range(nHaps):
-                if rec_scores[j, i] == score:
-                    geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
-                    p[geno] += 1
-                    count +=1
-            genotypes[i] = get_max_index(p)
-
-        return genotypes
+    return genotypes
 
 
 # @jit(nopython=True, nogil=True) 

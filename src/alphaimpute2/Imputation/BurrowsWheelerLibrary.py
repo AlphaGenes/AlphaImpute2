@@ -198,6 +198,53 @@ class jit_BurrowsWheelerLibrary():
         return ((0, self.nZeros[index]), (self.nZeros[index], self.nHaps))
 
 
+
+
+
+@jit(nopython=True, nogil=True)
+def get_null_state(index, nZeros, zeroOccNext):
+    nHaps = zeroOccNext.shape[0]
+    return ((0, nZeros[index]), (nZeros[index], nHaps))
+
+@jit(nopython=True, nogil=True)
+def update_state(state, index, nZeros, zeroOccNext):
+
+    if index == 0:
+        return get_null_state(index, nZeros, zeroOccNext)
+    # Note: index needs to be greater than 1.
+    int_start, int_end = state
+    if int_end - int_start <= 0:
+        return ((-1, -1), (-1, -1))
+
+    # Set up val_0
+
+    if int_start == 0:
+        lowerR = 0
+    else:
+        lowerR = zeroOccNext[int_start-1, index-1]
+    upperR = zeroOccNext[int_end-1, index-1] #Number of zeros in the region. 
+
+    if lowerR >= upperR:
+        vals_0 = (-1, -1)
+    else:
+        vals_0 = (lowerR, upperR)
+
+    # set up val_1
+
+    if int_start == 0:
+        lowerR = nZeros[index]
+    else:
+        lowerR = nZeros[index] + (int_start - zeroOccNext[int_start-1, index-1]) 
+    upperR = nZeros[index] + (int_end - zeroOccNext[int_end-1, index-1])
+
+    if lowerR >= upperR:
+        vals_1 = (-1, -1)
+    else:
+        vals_1 = (lowerR, upperR)
+
+    return (vals_0, vals_1)
+
+
 @njit
 def createBWLibrary(haps):
     

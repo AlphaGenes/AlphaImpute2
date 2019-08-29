@@ -76,7 +76,7 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
 
 def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes, n_samples):
     # Runs a set of individuals with an already-existing BW library and a flag for whether or not to set the haplotypes.
-    chunksize = 100
+    chunksize = 10
     jit_individuals = [ind.phasing_view for ind in individuals]
 
     if InputOutput.args.maxthreads <= 1 or len(individuals) < chunksize:
@@ -94,14 +94,15 @@ def split_individuals_into_groups(individuals, chunksize):
 
 
 # @jit(nopython=True, nogil=True) 
-@jit(nopython=True, nogil=True, parallel=True) 
+# @jit(nopython=True, nogil=True, parallel=True) 
 def phase_group(individuals, haplotype_library, set_haplotypes, n_samples):
     # Phases a group of individuals.
-    for i in prange(len(individuals)):
+    for i in range(len(individuals)):
         phase(individuals[i], haplotype_library, set_haplotypes = set_haplotypes, n_samples = n_samples)
 
 
-@jit(nopython=True, nogil=True) 
+# @jit(nopython=True, nogil=True) 
+@profile
 def phase(ind, haplotype_library, set_haplotypes, n_samples) :
     # Phases a specific individual.
     # Set_haplotypes determines whether or not to actually set the haplotypes of an individual based on the underlying samples.
