@@ -5,7 +5,7 @@ import random
 from numba import njit, jit, jitclass
 from collections import OrderedDict
 
-numba.NUMBA_DEBUGINFO=1
+# numba.NUMBA_DEBUGINFO=1
 
 from . import BurrowsWheelerLibrary
 from . import Imputation
@@ -224,6 +224,7 @@ def haplib_sample(sample, bw_library, ind):
 
     forward_geno_probs = sample.forward.forward_geno_probs
     penetrance_and_backward = ind.penetrance*ind.backward
+    penetrance_and_backward = penetrance_and_backward/np.sum(penetrance_and_backward, axis = 0)
 
     ind_genotypes = ind.genotypes
 
@@ -237,6 +238,7 @@ def haplib_sample(sample, bw_library, ind):
 
     pat_ranges = sample.forward.pat_ranges
     mat_ranges = sample.forward.mat_ranges
+
 
     for index in range(nLoci):
 
@@ -281,6 +283,7 @@ def haplib_sample(sample, bw_library, ind):
         score = 0
         observed_genotype = ind_genotypes[true_index]
         score += score_from_genotype(observed_genotype, selected_genotype, match_score, no_match_score)
+        # score += score_from_geno_probs(penetrance_and_backward[:,true_index], selected_genotype) # This doesn't seem to help much in the limited test case.
         score += score_from_rec_state(rec_state, rec_score, no_rec_score)
         rec[index] = score
 
@@ -302,8 +305,10 @@ def haplib_sample(sample, bw_library, ind):
         #     self.update_hap_info(index, rec_state, previous_states)
 
         previous_state = current_state
-    # Add the final set of states
+    
+    sample.forward.forward_geno_probs = forward_geno_probs
 
+    # Add the final set of states
     track_hap_info = sample.track_hap_info
     if track_hap_info:
         for index in range(nLoci):          
@@ -392,13 +397,17 @@ def calculate_haps_probs(rec_rate, values, pat_prop, mat_prop, hap_lib_prop):
     fill_values(values[3,:], hap_lib_prop, hap_lib_prop, rec_rate*rec_rate) 
 
 
-
 @jit(nopython = True, nogil=True)
 def fill_values(sub_values, pat_prob, mat_prop, scale):
     sub_values[0] = pat_prob[0] * mat_prop[0] * scale
     sub_values[1] = pat_prob[0] * mat_prop[1] * scale
     sub_values[2] = pat_prob[1] * mat_prop[0] * scale
     sub_values[3] = pat_prob[1] * mat_prop[1] * scale
+
+
+@jit(nopython = True, nogil=True)
+def score_from_geno_probs(geno_probs, selected_genotype):
+    return -np.log(geno_probs[selected_genotype])
 
 
 @jit(nopython = True, nogil=True)

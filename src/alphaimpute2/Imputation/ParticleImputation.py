@@ -37,7 +37,7 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
     impute_group(jit_individuals, haplotype_library.library, n_samples)
 
 
-@jit(nopython=True, nogil=True, parallel = True) 
+# @jit(nopython=True, nogil=True, parallel = True) 
 def impute_group(individuals, library, n_samples):
     for i in range(len(individuals)):
         impute(individuals[i], library, n_samples)
@@ -86,10 +86,15 @@ def impute(ind, bw_library, n_samples) :
     pat_hap, mat_hap = extended_sample_container.get_consensus(50)
     
     # We only set a very small set of loci with the forward_geno_probs, and so need to just update our estimates of those loci and keep the rest at a neutral value.
+    
+    forward = ind.forward # Not sure why we need to do this, but it turns out we do.
     for index in bw_library.loci:
-        ind.forward[:, index] = 0
+        for j in range(4):
+            forward[j, index] = 0.0
+
         for sample in sample_container.samples:
-            ind.forward[:, index] += sample.forward.forward_geno_probs[:, index] # We're really just averaging over particles. 
+            for j in range(4):
+                forward[j, index] += sample.forward.forward_geno_probs[j, index] # We're really just averaging over particles. 
 
     add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 

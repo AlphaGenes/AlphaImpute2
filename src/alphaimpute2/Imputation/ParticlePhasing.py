@@ -94,7 +94,7 @@ def split_individuals_into_groups(individuals, chunksize):
 
 
 # @jit(nopython=True, nogil=True) 
-@jit(nopython=True, nogil=True, parallel=True) 
+@jit(nopython=True, nogil=True) 
 def phase_group(individuals, haplotype_library, set_haplotypes, n_samples):
     # Phases a group of individuals.
     for i in range(len(individuals)):
@@ -133,7 +133,6 @@ def phase(ind, haplotype_library, set_haplotypes, n_samples) :
         ind.forward[:,:] = 0
         for sample in sample_container.samples:
             ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
-
     else:
         # Otherwise just set their haplotypes to the current estimated haplotype.
         ind.current_haplotypes[0][:] = pat_hap
