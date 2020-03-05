@@ -59,16 +59,18 @@ def getArgs() :
     core_parser = parser.add_argument_group("Core arguments")
     core_parser.add_argument('-out', required=True, type=str, help='The output file prefix.')
     InputOutput.addInputFileParser(parser)
-    
+
+    probability_parser = parser.add_argument_group("Probability options")
+    InputOutput.add_arguments_from_dictionary(probability_parser, InputOutput.get_probability_options(), ["error"])
+
     core_impute_parser = parser.add_argument_group("Impute options")
     core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
     
     core_impute_parser.add_argument('-phase', action='store_true', required=False, help='Flag to run the phasing algorithm.')
     core_impute_parser.add_argument('-popimpute', action='store_true', required=False, help='Flag to run the phasing algorithm.')
-    core_impute_parser.add_argument('-pedimpute', action='store_true', required=False, help='Flag to run the phasing algorithm.')
+    core_impute_parser.add_argument('-pedimpute', action='store_true', required=False, help='Flag to run the pedigree based imputation algorithm.')
    
-
 
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')

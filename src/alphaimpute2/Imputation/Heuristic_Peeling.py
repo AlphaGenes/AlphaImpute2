@@ -1,5 +1,6 @@
 import numpy as np
 from numba import jit, float32
+import numba.typed
 
 import concurrent.futures
 from itertools import repeat
@@ -57,7 +58,6 @@ def time_func(text):
 @profile
 @time_func("Heuristic Peeling")
 def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
-
     setupHeuristicPeeling(pedigree, args)
 
     # Run peeling cycle. Cutoffs are for genotype probabilities. 
@@ -67,13 +67,14 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
 
     # Set to best-guess genotypes.
     for ind in pedigree:
-        ind.peeling_view.setGenotypesAll(final_cutoff)
+        call_genotypes(ind, final_cutoff, args.error)
+
 
 def setupHeuristicPeeling(pedigree, args):
-    # Sets the founder anterior values and all individual's penetrance values for Heuristic peeling.
+    # Sets the founder anterior values and penetrance value for Heuristic peeling.
 
     for ind in pedigree:
-        ind.peeling_view.setValueFromGenotypes(ind.peeling_view.penetrance, 0.01)
+        ind.peeling_view.setupProbabilityValues(args.error)
 
     # Set anterior values for founders. 
     # Although the maf will change as more individuals are imputed, we're just going to do this once.
@@ -84,6 +85,27 @@ def setupHeuristicPeeling(pedigree, args):
     # for ind in pedigree:
     #     if ind.isFounder():
     #         ind.peeling_view.setAnterior(founder_anterior.copy())
+
+def call_genotypes(ind, final_cutoff, error_rate):
+
+    if ind.peeling_view.has_offspring:
+        ind.peeling_view.setGenotypesAll(final_cutoff)
+
+    else:
+        nLoci = len(ind.genotypes)
+
+        penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+        ind.peeling_view.setValueFromGenotypes(penetrance, error_rate)
+        
+        if ind.sire is not None and ind.dam is not None:
+            # Make sure the sire/dam are setup right.
+            ind.sire.peeling_view.setGenotypesAll(final_cutoff)
+            ind.dam.peeling_view.setGenotypesAll(final_cutoff)
+            anterior = getAnterior(ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view)
+            penetrance *= anterior # Add the penetrance with the anterior. Normalization will happen within the function.
+
+        ind.peeling_view.setGenotypesFromGenotypeProbabilities(penetrance, final_cutoff)
+
 
 @time_func("Core peeling cycles")
 def runPeelingCycles(pedigree, args, cutoffs):
@@ -151,7 +173,12 @@ def pedigreePeelUp(pedigree, args, cutoff):
 def set_segregation_peel_down(family, cutoff):
     sire = family.sire.peeling_view
     dam = family.dam.peeling_view
-    offspring = [ind.peeling_view for ind in family.offspring]
+    
+    # Trying out the new list interface.    
+    offspring = numba.typed.List()
+    for ind in family.offspring:
+        offspring.append(ind.peeling_view)
+    # offspring = [ind.peeling_view for ind in family.offspring]
     set_segregation_peel_down_jit(sire, dam, offspring, cutoff)
 
 @jit(nopython=True, nogil = True)
@@ -167,8 +194,9 @@ def set_segregation_peel_down_jit(sire, dam, offspring, cutoff):
         setSegregation(child, sire, dam)
 
     for i in range(nOffspring):
-        newAnterior = getAnterior(offspring[i], sire, dam)
-        offspring[i].setAnterior(newAnterior)
+        if offspring[i].has_offspring: # Otherwise we don't really care about the offspring's values.
+            newAnterior = getAnterior(offspring[i], sire, dam)
+            offspring[i].setAnterior(newAnterior)
 
 
 
@@ -220,7 +248,13 @@ def getTransmittedProbs(seg, genoProbs):
 def heuristicPeelUp_family(family, cutoff):
     sire = family.sire.peeling_view
     dam = family.dam.peeling_view
-    offspring = [ind.peeling_view for ind in family.offspring]
+
+    # New peeling interface
+    offspring = numba.typed.List()
+    for ind in family.offspring:
+        offspring.append(ind.peeling_view)
+
+    # offspring = [ind.peeling_view for ind in family.offspring]
     sire_scores, dam_scores = heuristicPeelUp_family_jit(sire, dam, offspring, cutoff)
 
     family.sire.peeling_view.addPosterior(sire_scores, family.idn)
@@ -331,12 +365,36 @@ def setSegregation(ind, sire, dam):
     pointEstimates = np.full((4, nLoci), 1, dtype = np.float32)
     fillPointEstimates(pointEstimates, ind, sire, dam)
 
+
     smoothedEstimates = smoothPointSeg(pointEstimates, 1.0/nLoci) # This is where different map lengths could be added.
 
     # Then set the segregation values for the individual.
     ind.segregation[0][:] = smoothedEstimates[2, :] + smoothedEstimates[3,:]
     ind.segregation[1][:] = smoothedEstimates[1, :] + smoothedEstimates[3,:]
 
+    # if ind.idn == 4322:
+    #     print("")
+    #     print(ind.idn)
+    #     print(sire.anterior[:,0:10])
+    #     print(sire.genotypeProbabilities[:,0:10])
+    #     print(sire.segregation[0][0:10])
+    #     print(sire.segregation[1][0:10])
+    #     print("")
+    #     print(sire.genotypes[0:10])
+    #     print(sire.haplotypes[0][0:10])
+    #     print(sire.haplotypes[1][0:10])
+    #     print("")
+    #     print(dam.genotypes[0:10])
+    #     print(dam.haplotypes[0][0:10])
+    #     print(dam.haplotypes[1][0:10])
+    #     print("")
+    #     print(ind.genotypes[0:10])
+    #     print(ind.haplotypes[0][0:10])
+    #     print(ind.haplotypes[1][0:10])
+        
+    #     print(pointEstimates[:,0:10])
+    #     print(ind.segregation[0][0:10])
+    #     print(ind.segregation[1][0:10])
 
 @jit(nopython=True, nogil = True)
 def fillPointEstimates(pointEstimates, ind, sire, dam):
