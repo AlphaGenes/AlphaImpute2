@@ -26,7 +26,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         if self.haplotypes is None:
             self.haplotypes = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
 
-        self.setPhasingView()
+        # self.setPhasingView()
         self.setPeelingView()
 
     def setPeelingView(self):
@@ -161,8 +161,8 @@ class jit_Peeling_Individual(object):
         self.segregation = (np.full(nLoci, .5, dtype = np.float32), np.full(nLoci, .5, dtype = np.float32))
 
         # Create the posterior terms.
-        self.has_offspring = has_offspring
-        # self.has_offspring = True
+        # self.has_offspring = has_offspring
+        self.has_offspring = True
         if self.has_offspring:
             self.posterior = np.full((4, nLoci), 1, dtype = np.float32)
             self.anterior = np.full((4, nLoci), 1, dtype = np.float32) 
