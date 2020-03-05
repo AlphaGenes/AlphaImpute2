@@ -161,6 +161,8 @@ def pedigreePeelUp(pedigree, args, cutoff):
                 executor.map(heuristicPeelUp_family, generation.families, repeat(cutoff))
 
 
+        for parent in generation.parents:
+            parent.peeling_view.popPosterior()
 
 
 ############

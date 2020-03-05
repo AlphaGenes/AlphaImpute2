@@ -132,11 +132,14 @@ spec['has_offspring'] = boolean
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
 spec['segregation'] = numba.typeof((np.array([0, 1], dtype = np.float32), np.array([0], dtype = np.float32)))
-spec['newPosterior'] = optional(numba.typeof([np.full((4, 100), 0, dtype = np.float32)]))
+spec['posterior_staging'] = optional(numba.typeof([np.full((4, 100), 0, dtype = np.float32)]))
 
 spec['anterior'] = float32[:,:]
 spec['penetrance'] = float32[:,:]
 spec['posterior'] = float32[:,:]
+
+spec['newPosterior'] = float32[:,:]
+
 spec['genotypeProbabilities'] = float32[:,:]
 
 spec['currentState'] = int8
@@ -161,12 +164,14 @@ class jit_Peeling_Individual(object):
         self.segregation = (np.full(nLoci, .5, dtype = np.float32), np.full(nLoci, .5, dtype = np.float32))
 
         # Create the posterior terms.
-        # self.has_offspring = has_offspring
-        self.has_offspring = True
+        self.has_offspring = has_offspring
+        # self.has_offspring = True
         if self.has_offspring:
             self.posterior = np.full((4, nLoci), 1, dtype = np.float32)
             self.anterior = np.full((4, nLoci), 1, dtype = np.float32) 
             self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+
+            self.newPosterior = np.full((4, nLoci), 0, dtype = np.float32) 
             self.genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
 
         else:
@@ -177,7 +182,7 @@ class jit_Peeling_Individual(object):
             self.penetrance = np.full((0, 0), 1, dtype = np.float32) 
             self.genotypeProbabilities = np.full((0, 0), 1, dtype = np.float32)
 
-        self.newPosterior = None
+        self.posterior_staging = None
 
         # Current state indicates which genotype combination an individual is set to, and the cutoff value used for calling their genotypes.
         # Missing = -1
@@ -245,22 +250,25 @@ class jit_Peeling_Individual(object):
             self.currentState = -1
 
     def setPosterior(self):
-        if self.has_offspring and self.newPosterior is not None:
-            # Take all the posterior values and add them up.
-            sumPosterior = np.full(self.posterior.shape, 0, dtype = np.float32)
-
-            nPost = len(self.newPosterior)
-            for i in range(nPost):
-                sumPosterior += self.newPosterior[i]
-            self.posterior = self.set_posterior_from_scores(sumPosterior)
+        if self.has_offspring:
+            self.popPosterior()
             self.currentState = -1
-            self.newPosterior = None
+            self.posterior = self.set_posterior_from_scores(self.newPosterior)
+            self.newPosterior[:,:] = 0
+
+    def popPosterior(self):
+        if self.has_offspring and self.posterior_staging is not None:
+            # Take all the posterior values and add them up.
+            nPost = len(self.posterior_staging)
+            for i in range(nPost):
+                self.newPosterior += self.posterior_staging[i]
+            self.posterior_staging = None
 
     def addPosterior(self, newValues, idn):
-        if self.newPosterior is None:
-            self.newPosterior = [newValues]
+        if self.posterior_staging is None:
+            self.posterior_staging = [newValues]
         else:
-            self.newPosterior.append(newValues)
+            self.posterior_staging.append(newValues)
 
 
     def setupProbabilityValues(self, error_rate):
