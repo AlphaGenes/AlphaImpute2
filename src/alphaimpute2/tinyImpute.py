@@ -81,6 +81,8 @@ def getArgs() :
 
     core_impute_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
 
+    core_impute_parser.add_argument('-hd_threshold',default=0.9, required=False, type=float, help='Threshold for high density individuals when building the haplotype library. Default: 0.8.')
+
     return InputOutput.parseArgs("AlphaImpute", parser)
 
 def writeOutResults(pedigree, args):
@@ -134,59 +136,88 @@ def call_genotypes(matrix):
     calledGenotypes = np.argmax(matrixCollapsedHets, axis = 0)
     return calledGenotypes.astype(np.int8)
 
+
+def create_haplotype_library(pedigree, args):
+
+    hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > args.hd_threshold]
+    print("Phasing", len(hd_individuals), "HD individuals")
+    cycles = [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
+
+    rev_individuals = [ind.reverse_individual() for ind in hd_individuals]
+    ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
+
+    for ind in hd_individuals:
+        ind.add_backward_info()
+
+    ParticlePhasing.create_library_and_phase(hd_individuals, cycles, args)     
+
+    return hd_individuals
+
+def run_population_imputation(pedigree, args, haplotype_library):
+
+    ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= args.hd_threshold and np.mean(ind.genotypes != 9) > 0.01)]
+    individuals_per_chip = split_population_by_chip(ld_individuals)
+
+    for chip in individuals_per_chip:
+        impute_individuals_on_chip(chip, args, haplotype_library)
+
+def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
+
+    average_marker_density = np.floor(np.mean([np.mean(ind.genotypes != 9) for ind in ld_individuals]))
+
+    print("Imputing", len(ld_individuals), f"LD individuals genotyped with {average_marker_density} markers")
+
+    flipped_dict = dict()
+    reversed_ld = [ind.reverse_individual() for ind in ld_individuals]
+
+    library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
+    ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library, n_samples = args.n_imputation_particles)
+
+    for ind in ld_individuals:
+        ind.add_backward_info()
+
+
+    print(len(ld_individuals), "Sent to imputation")
+    library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
+    ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
+
+
+
 @profile
 def main():
     
-    # Set up arguments and pedigree
     args = getArgs()
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
     
+    # Read in genotype data, and prepare individuals for imputation.
+
     startTime = datetime.datetime.now()
     InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
     print("Readin", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
-
-    # Fill in haplotypes and phase
     setupImputation(pedigree)
 
-    if args.phase:
-        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > .6]
-        print("Phasing", len(hd_individuals), "HD individuals")
-        cycles = [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
 
-        rev_individuals = [ind.reverse_individual() for ind in hd_individuals]
-        ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
+    # If pedigree imputation. Run initial round of pedigree imputation.
+    # If no population imputation, run with a low cutoff.
 
-        for ind in hd_individuals:
-            ind.add_backward_info()
+    if args.pedimpute:
 
-        ParticlePhasing.create_library_and_phase(hd_individuals, cycles, args)     
+        final_cutoff = 0.1
+        if args.phase or args.popimpute:
+            final_cutoff = 0.95
+        Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .95)
+
+    # If population imputation and phasing, build the haplotype reference panel and impute low density individuals.
+
+    if args.phase or args.popimpute:
+        haplotype_library = create_haplotype_library(pedigree, args)
 
         if args.popimpute:
-            ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= .6 and np.mean(ind.genotypes !=9) > 0.01)]
-            print("Imputing", len(ld_individuals), "LD individuals")
+            impute_low_density_individuals(pedigree, args, haplotype_library)
 
-            flipped_dict = dict()
-            reversed_ld = [ind.reverse_individual() for ind in ld_individuals]
-
-            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
-            ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library, n_samples = args.n_imputation_particles)
-
-            for ind in ld_individuals:
-                ind.add_backward_info()
-
-
-            print(len(ld_individuals), "Sent to imputation")
-            library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
-            ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
-
-
-    # Run family based phasing.
-    if args.pedimpute:
-        Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1)
 
     # Write out results
     startTime = datetime.datetime.now()
-
     writeOutResults(pedigree, args)
     print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
 

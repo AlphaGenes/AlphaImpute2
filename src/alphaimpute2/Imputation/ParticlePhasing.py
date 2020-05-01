@@ -70,6 +70,7 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
     # Fills in missing data, runs the BW algorithm on the haplotypes, and sets exclusions.
     if setup:
         haplotype_library.setup_library()
+
     return haplotype_library
 
 

@@ -26,7 +26,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         if self.haplotypes is None:
             self.haplotypes = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
 
-        # self.setPhasingView()
+        self.setPhasingView()
         self.setPeelingView()
 
     def setPeelingView(self):
