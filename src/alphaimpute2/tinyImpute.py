@@ -6,6 +6,7 @@ from .Imputation import ParticleImputation
 from .Imputation import Heuristic_Peeling
 from .Imputation import ImputationIndividual
 from .Imputation import Imputation
+from .Imputation import ArrayClustering
 
 
 import datetime
@@ -82,6 +83,7 @@ def getArgs() :
     core_impute_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
 
     core_impute_parser.add_argument('-hd_threshold',default=0.9, required=False, type=float, help='Threshold for high density individuals when building the haplotype library. Default: 0.8.')
+    core_impute_parser.add_argument('-min_chip',default=0.05, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -156,21 +158,21 @@ def create_haplotype_library(pedigree, args):
 def run_population_imputation(pedigree, args, haplotype_library):
 
     ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= args.hd_threshold and np.mean(ind.genotypes != 9) > 0.01)]
-    individuals_per_chip = split_population_by_chip(ld_individuals)
+    chips = ArrayClustering.cluster_individuals_by_array(ld_individuals, args.min_chip)
 
-    for chip in individuals_per_chip:
-        impute_individuals_on_chip(chip, args, haplotype_library)
+    for chip in chips:
+        impute_individuals_on_chip(chip.individuals, args, haplotype_library)
 
 def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
 
     average_marker_density = np.floor(np.mean([np.mean(ind.genotypes != 9) for ind in ld_individuals]))
 
-    print("Imputing", len(ld_individuals), f"LD individuals genotyped with {average_marker_density} markers")
+    print("Imputing", len(ld_individuals), f"LD individuals genotyped with an average of {average_marker_density} markers")
 
     flipped_dict = dict()
     reversed_ld = [ind.reverse_individual() for ind in ld_individuals]
 
-    library = ParticlePhasing.get_reference_library(hd_individuals, setup = False, reverse = True)
+    library = ParticlePhasing.get_reference_library(haplotype_library, setup = False, reverse = True)
     ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library, n_samples = args.n_imputation_particles)
 
     for ind in ld_individuals:
@@ -178,7 +180,7 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
 
 
     print(len(ld_individuals), "Sent to imputation")
-    library = ParticlePhasing.get_reference_library(hd_individuals, setup = False)
+    library = ParticlePhasing.get_reference_library(haplotype_library, setup = False)
     ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
 
 
@@ -196,6 +198,7 @@ def main():
     print("Readin", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
     setupImputation(pedigree)
 
+    individuals = [ind for ind in pedigree]
 
     # If pedigree imputation. Run initial round of pedigree imputation.
     # If no population imputation, run with a low cutoff.
@@ -213,7 +216,7 @@ def main():
         haplotype_library = create_haplotype_library(pedigree, args)
 
         if args.popimpute:
-            impute_low_density_individuals(pedigree, args, haplotype_library)
+            run_population_imputation(pedigree, args, haplotype_library)
 
 
     # Write out results
