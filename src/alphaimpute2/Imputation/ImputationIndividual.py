@@ -1,7 +1,13 @@
 from ..tinyhouse import Pedigree
 
+try:
+    from numba.experimental import jitclass
+except ModuleNotFoundError:
+    from numba import jitclass
+
+
 import numba
-from numba import jit, int8, int64, boolean, optional, jitclass, float32
+from numba import jit, int8, int64, boolean, optional, float32
 from collections import OrderedDict
 import numpy as np
 from . import Imputation
@@ -18,6 +24,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         super().__init__(idx, idn)
 
         self.reverse_view = None
+        self.backward_information = None
 
     def setupIndividual(self):
 
@@ -26,8 +33,8 @@ class AlphaImputeIndividual(Pedigree.Individual):
         if self.haplotypes is None:
             self.haplotypes = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
 
-        self.setPhasingView()
-        self.setPeelingView()
+        # self.setPhasingView()
+        # self.setPeelingView()
 
     def setPeelingView(self):
         # Set the 
@@ -48,7 +55,12 @@ class AlphaImputeIndividual(Pedigree.Individual):
             raise ValueError("In order to create a jit_Phasing_Individual both the genotypes and haplotypes need to be created.")
         nLoci = len(self.genotypes) # self.genotypes will always be not None (otherwise error will be raised above).
 
-        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, nLoci)
+        if self.backward_information is None:
+            backward = np.full((4, nLoci), 1, dtype = np.float32)
+        else:
+            backward = self.backward_information
+
+        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, nLoci)
 
 
     def reverse_individual(self):
@@ -66,8 +78,11 @@ class AlphaImputeIndividual(Pedigree.Individual):
         if self.reverse_view is None:
             print("Trying to set backward information, but no reverse_view is availible")
         else:
-            self.phasing_view.backward[:,:] = np.flip(self.reverse_view.phasing_view.forward, axis = 1) # Flip along loci.
+            self.backward_information = np.flip(self.reverse_view.phasing_view.backward, axis = 1)
+            # self.phasing_view.backward[:,:] = np.flip(self.reverse_view.phasing_view.forward, axis = 1) # Flip along loci.
 
+    def clear_reverse_view(self):
+        self.reverse_view = None
 
 
 spec = OrderedDict()
@@ -83,7 +98,7 @@ spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np
 
 spec['penetrance'] = float32[:,:]
 
-spec['forward'] = float32[:,:]
+# spec['forward'] = optional(float32[:,:])
 spec['backward'] = float32[:,:]
 
 spec['own_haplotypes'] = int64[:,:]
@@ -94,7 +109,7 @@ class jit_Phasing_Individual(object):
     '''
     This class holds data for phasing a given individual.
     '''
-    def __init__(self, idn, genotypes, haplotypes, nLoci):
+    def __init__(self, idn, genotypes, haplotypes, backward, nLoci):
         self.idn = idn
         self.nLoci = nLoci
         self.genotypes = genotypes
@@ -103,8 +118,8 @@ class jit_Phasing_Individual(object):
         
         self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
 
-        self.forward = np.full((4, nLoci), 1, dtype = np.float32) 
-        self.backward = np.full((4, nLoci), 1, dtype = np.float32) 
+        # self.forward = None
+        self.backward = backward 
 
         self.called_genotypes = np.full(nLoci, 9, dtype = np.int8)
 
@@ -115,11 +130,65 @@ class jit_Phasing_Individual(object):
         self.own_haplotypes = haplotypes_in
         self.has_own_haplotypes = True
 
+
+
+    def setValueFromGenotypes(self, mat, error_rate):
+        nLoci = self.nLoci
+        mat[:,:] = 1
+        for i in range(nLoci):
+            g = self.genotypes[i]
+            
+            if g == 0:
+                mat[0,i] = 1
+                mat[1,i] = 0
+                mat[2,i] = 0
+                mat[3,i] = 0
+            if g == 1:
+                mat[0,i] = 0
+                mat[1,i] = 1
+                mat[2,i] = 1
+                mat[3,i] = 0
+
+            if g == 2:
+                mat[0,i] = 0
+                mat[1,i] = 0
+                mat[2,i] = 0
+                mat[3,i] = 1
+
+            # Handle haplotypes by rulling out genotype states
+            if self.haplotypes[0][i] == 0:
+                mat[2,i] = 0
+                mat[3,i] = 0
+
+            if self.haplotypes[0][i] == 1:
+                mat[0,i] = 0
+                mat[1,i] = 0
+
+            if self.haplotypes[1][i] == 0:
+                mat[1,i] = 0
+                mat[3,i] = 0
+
+            if self.haplotypes[1][i] == 1:
+                mat[0,i] = 0
+                mat[2,i] = 0
+
+            e = error_rate
+            count = 0
+            for j in range(4):
+                count += mat[j, i]
+            # if count == 0:
+            #     print(g, self.haplotypes[0][i], self.haplotypes[1][i])
+            for j in range(4):
+                mat[j, i] = mat[j, i]/count*(1-e) + e/4
+
+
+
+
 example_phasing_individual = None
 def get_example_phasing_individual():
     global example_phasing_individual
     if example_phasing_individual is None:
-        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), 2)
+        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), np.full((4, 2), 0, dtype = np.float32), 2)
     return example_phasing_individual
 
 spec = OrderedDict()
@@ -392,7 +461,6 @@ class jit_Peeling_Individual(object):
             for j in range(4):
                 posterior[j, i] = vals[j]*(1-e) + e/4           
         return posterior
-
 
 
 @jit(nopython=True, nogil = True)

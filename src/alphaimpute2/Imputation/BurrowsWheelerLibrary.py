@@ -2,7 +2,15 @@
 import random
 import numpy as np
 import numba
-from numba import njit, jit, int8, int32,int64, boolean, deferred_type, optional, jitclass, float32
+
+
+try:
+    from numba.experimental import jitclass
+except ModuleNotFoundError:
+    from numba import jitclass
+
+
+from numba import njit, jit, int8, int32,int64, boolean, deferred_type, optional, float32
 from collections import OrderedDict
 
 try:

@@ -3,7 +3,9 @@ import numpy as np
 import random
 import concurrent.futures
 
+from numba.typed import List
 from numba import njit, jit, jitclass, prange
+
 from collections import OrderedDict
 from itertools import repeat
 
@@ -24,9 +26,9 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
     
     # fill in genotype probabilities.
     for ind in individuals:
-        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
+        ind.phasing_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
 
-    jit_individuals = [ind.phasing_view for ind in individuals]
+    jit_individuals = List([ind.phasing_view for ind in individuals])
 
     missing_threshold = 0.5
     loci = get_non_missing_loci(jit_individuals, missing_threshold)
@@ -34,10 +36,24 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
     
     # Sets up the haplotype reference library using only the loci in loci. 
     haplotype_library.setup_library(loci)
-    impute_group(jit_individuals, haplotype_library.library, n_samples)
+
+    chunksize = 10
+    # Run imputation; splitting into threads if needed
+    if InputOutput.args.maxthreads <= 1 or len(individuals) < chunksize:
+        impute_group(jit_individuals, haplotype_library.library, n_samples)
+
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=InputOutput.args.maxthreads) as executor:
+            groups = split_individuals_into_groups(jit_individuals, chunksize)
+            executor.map(impute_group, groups, repeat(haplotype_library.library), repeat(n_samples))
+
+def split_individuals_into_groups(individuals, chunksize):
+    # Split out a list of individuals into groups that are approximately chunksize long.
+    groups = [individuals[start:(start+chunksize)] for start in range(0, len(individuals), chunksize)]
+    return groups
 
 
-# @jit(nopython=True, nogil=True, parallel = True) 
+@jit(nopython=True, nogil=True) 
 def impute_group(individuals, library, n_samples):
     for i in range(len(individuals)):
         impute(individuals[i], library, n_samples)
@@ -87,14 +103,14 @@ def impute(ind, bw_library, n_samples) :
     
     # We only set a very small set of loci with the forward_geno_probs, and so need to just update our estimates of those loci and keep the rest at a neutral value.
     
-    forward = ind.forward # Not sure why we need to do this, but it turns out we do.
+    backward = ind.backward # Not sure why we need to do this, but it turns out we do.
     for index in bw_library.loci:
         for j in range(4):
-            forward[j, index] = 0.0
+            backward[j, index] = 0.0
 
         for sample in sample_container.samples:
             for j in range(4):
-                forward[j, index] += sample.forward.forward_geno_probs[j, index] # We're really just averaging over particles. 
+                backward[j, index] += sample.forward.forward_geno_probs[j, index] # We're really just averaging over particles. 
 
     add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 

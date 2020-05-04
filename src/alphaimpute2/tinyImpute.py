@@ -77,7 +77,7 @@ def getArgs() :
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
 
 
-    core_impute_parser.add_argument('-n_phasing_particles',default=80, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
+    core_impute_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
     core_impute_parser.add_argument('-n_phasing_cycles',default=5, required=False, type=int, help='Number of phasing cycles. Default: 4')
 
     core_impute_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
@@ -142,20 +142,45 @@ def call_genotypes(matrix):
 def create_haplotype_library(pedigree, args):
 
     hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > args.hd_threshold]
+    
     print("Phasing", len(hd_individuals), "HD individuals")
+    print("")
+    print("Running backward passes")
     cycles = [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
 
-    rev_individuals = [ind.reverse_individual() for ind in hd_individuals]
+    rev_individuals = setup_reverse_individuals(hd_individuals)
+
+
     ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
 
-    for ind in hd_individuals:
-        ind.add_backward_info()
+    integrate_reverse_individuals(hd_individuals)
+    print("")
+    print("Running forward passes")
 
     ParticlePhasing.create_library_and_phase(hd_individuals, cycles, args)     
 
     return hd_individuals
 
+def setup_reverse_individuals(individuals):
+
+    rev_individuals = [ind.reverse_individual() for ind in individuals]
+    # Run reverse pass
+    for ind in rev_individuals:
+        ind.setPhasingView()
+
+    return rev_individuals
+
+def integrate_reverse_individuals(individuals):
+
+    for ind in individuals:
+        ind.add_backward_info()
+        ind.clear_reverse_view()
+        ind.setPhasingView()
+
+
 def run_population_imputation(pedigree, args, haplotype_library):
+
+    print("Splitting individuals into different marker densities")
 
     ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= args.hd_threshold and np.mean(ind.genotypes != 9) > 0.01)]
     chips = ArrayClustering.cluster_individuals_by_array(ld_individuals, args.min_chip)
@@ -163,23 +188,27 @@ def run_population_imputation(pedigree, args, haplotype_library):
     for chip in chips:
         impute_individuals_on_chip(chip.individuals, args, haplotype_library)
 
+
 def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
 
-    average_marker_density = np.floor(np.mean([np.mean(ind.genotypes != 9) for ind in ld_individuals]))
+    average_marker_density = np.floor(np.mean([np.sum(ind.genotypes != 9) for ind in ld_individuals]))
 
     print("Imputing", len(ld_individuals), f"LD individuals genotyped with an average of {average_marker_density} markers")
 
     flipped_dict = dict()
-    reversed_ld = [ind.reverse_individual() for ind in ld_individuals]
+    reversed_ld = setup_reverse_individuals(ld_individuals)
+
+    print("")
+    print("Running backwards passes")
 
     library = ParticlePhasing.get_reference_library(haplotype_library, setup = False, reverse = True)
     ParticleImputation.impute_individuals_with_bw_library(reversed_ld, library, n_samples = args.n_imputation_particles)
 
-    for ind in ld_individuals:
-        ind.add_backward_info()
+    integrate_reverse_individuals(ld_individuals)
 
+    print("")
+    print("Running forward passes")
 
-    print(len(ld_individuals), "Sent to imputation")
     library = ParticlePhasing.get_reference_library(haplotype_library, setup = False)
     ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
 
@@ -208,6 +237,7 @@ def main():
         final_cutoff = 0.1
         if args.phase or args.popimpute:
             final_cutoff = 0.95
+        
         Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .95)
 
     # If population imputation and phasing, build the haplotype reference panel and impute low density individuals.

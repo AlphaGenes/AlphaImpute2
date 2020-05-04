@@ -58,6 +58,10 @@ def time_func(text):
 @profile
 @time_func("Heuristic Peeling")
 def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
+    # Set up peeling view
+    for ind in pedigree:
+        ind.setPeelingView()
+
     setupHeuristicPeeling(pedigree, args)
 
     # Run peeling cycle. Cutoffs are for genotype probabilities. 
@@ -69,6 +73,10 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
     for ind in pedigree:
         call_genotypes(ind, final_cutoff, args.error)
 
+
+    # Clear peeling view
+    for ind in pedigree:
+        ind.peeling_view = None
 
 def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and penetrance value for Heuristic peeling.

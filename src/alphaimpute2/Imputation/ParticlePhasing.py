@@ -3,7 +3,15 @@ import numpy as np
 import random
 import concurrent.futures
 
-from numba import njit, jit, jitclass, prange
+from numba import njit, jit, prange
+from numba.typed import List
+
+try:
+    from numba.experimental import jitclass
+except ModuleNotFoundError:
+    from numba import jitclass
+
+
 from collections import OrderedDict
 from itertools import repeat
 
@@ -26,7 +34,7 @@ def create_library_and_phase(individuals, cycles, args) :
     # This function creates a haplotype library and phases individuals using the haplotype library.
 
     for ind in individuals:
-        ind.peeling_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01)
+        ind.phasing_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01) # args.error?
 
     phase_round(individuals, individual_exclusion = True, set_haplotypes = False, n_samples = 1)
     for i in range(len(cycles) - 1):
@@ -78,7 +86,10 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
 def phase_individuals_with_bw_library(individuals, bwLibrary, set_haplotypes, n_samples):
     # Runs a set of individuals with an already-existing BW library and a flag for whether or not to set the haplotypes.
     chunksize = 10
-    jit_individuals = [ind.phasing_view for ind in individuals]
+    jit_individuals = List([ind.phasing_view for ind in individuals])
+    # for ind in individuals:
+    #     jit_individuals
+    # jit_individuals = [ind.phasing_view for ind in individuals]
 
     if InputOutput.args.maxthreads <= 1 or len(individuals) < chunksize:
         phase_group(jit_individuals, bwLibrary.library, set_haplotypes = set_haplotypes, n_samples = n_samples)
@@ -128,16 +139,16 @@ def phase(ind, haplotype_library, set_haplotypes, n_samples) :
 
     pat_hap, mat_hap = sample_container.get_consensus(50)
   
-
     if set_haplotypes:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
-        ind.forward[:,:] = 0
+
+        ind.backward[:,:] = 0
         for sample in sample_container.samples:
-            ind.forward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
-    else:
-        # Otherwise just set their haplotypes to the current estimated haplotype.
-        ind.current_haplotypes[0][:] = pat_hap
-        ind.current_haplotypes[1][:] = mat_hap
+            ind.backward += sample.forward.forward_geno_probs # We're really just averaging over particles. 
+
+    # Always set current_haplotype after the last round of phasing.    
+    ind.current_haplotypes[0][:] = pat_hap
+    ind.current_haplotypes[1][:] = mat_hap
     
 
 @jit(nopython=True, nogil=True) 

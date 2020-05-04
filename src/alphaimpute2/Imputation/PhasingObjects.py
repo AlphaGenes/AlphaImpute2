@@ -2,7 +2,13 @@ import numba
 import numpy as np
 import random
 
-from numba import njit, jit, jitclass
+try:
+    from numba.experimental import jitclass
+except ModuleNotFoundError:
+    from numba import jitclass
+
+
+from numba import njit, jit
 from collections import OrderedDict
 
 # numba.NUMBA_DEBUGINFO=1
