@@ -83,7 +83,7 @@ def getArgs() :
     core_impute_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
 
     core_impute_parser.add_argument('-hd_threshold',default=0.9, required=False, type=float, help='Threshold for high density individuals when building the haplotype library. Default: 0.8.')
-    core_impute_parser.add_argument('-min_chip',default=0.05, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
+    core_impute_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -178,14 +178,16 @@ def integrate_reverse_individuals(individuals):
         ind.setPhasingView()
 
 
-def run_population_imputation(pedigree, args, haplotype_library):
+def run_population_imputation(pedigree, args, haplotype_library, arrays):
 
     print("Splitting individuals into different marker densities")
 
-    ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= args.hd_threshold and np.mean(ind.genotypes != 9) > 0.01)]
-    chips = ArrayClustering.cluster_individuals_by_array(ld_individuals, args.min_chip)
+    # ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= args.hd_threshold and np.mean(ind.genotypes != 9) > 0.01)]
+    # chips = ArrayClustering.cluster_individuals_by_array(ld_individuals, args.min_chip)
 
-    for chip in chips:
+    ArrayClustering.update_arrays(arrays)
+
+    for chip in arrays:
         impute_individuals_on_chip(chip.individuals, args, haplotype_library)
 
 
@@ -232,6 +234,9 @@ def main():
     # If pedigree imputation. Run initial round of pedigree imputation.
     # If no population imputation, run with a low cutoff.
 
+    if args.phase or args.popimpute:
+        arrays = ArrayClustering.cluster_individuals_by_array(individuals, args.min_chip)
+
     if args.pedimpute:
 
         final_cutoff = 0.1
@@ -244,9 +249,9 @@ def main():
 
     if args.phase or args.popimpute:
         haplotype_library = create_haplotype_library(pedigree, args)
-
+        # haplotype_library = None
         if args.popimpute:
-            run_population_imputation(pedigree, args, haplotype_library)
+            run_population_imputation(pedigree, args, haplotype_library, arrays)
 
 
     # Write out results
