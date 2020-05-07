@@ -71,6 +71,7 @@ def getArgs() :
     core_impute_parser.add_argument('-phase', action='store_true', required=False, help='Flag to run the phasing algorithm.')
     core_impute_parser.add_argument('-popimpute', action='store_true', required=False, help='Flag to run the phasing algorithm.')
     core_impute_parser.add_argument('-pedimpute', action='store_true', required=False, help='Flag to run the pedigree based imputation algorithm.')
+    core_impute_parser.add_argument('-ped_finish', action='store_true', required=False, help='Flag to run the pedigree imputation after population imputation.')
    
 
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
@@ -83,6 +84,9 @@ def getArgs() :
     core_impute_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
 
     core_impute_parser.add_argument('-hd_threshold',default=0.9, required=False, type=float, help='Threshold for high density individuals when building the haplotype library. Default: 0.8.')
+    core_impute_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
+    
+
     core_impute_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
@@ -178,16 +182,15 @@ def integrate_reverse_individuals(individuals):
         ind.setPhasingView()
 
 
-def run_population_imputation(pedigree, args, haplotype_library, arrays):
+def run_population_imputation(ld_individuals, args, haplotype_library, arrays):
 
     print("Splitting individuals into different marker densities")
 
-    # ld_individuals = [ind for ind in pedigree if (np.mean(ind.genotypes != 9) <= args.hd_threshold and np.mean(ind.genotypes != 9) > 0.01)]
-    # chips = ArrayClustering.cluster_individuals_by_array(ld_individuals, args.min_chip)
-
     ArrayClustering.update_arrays(arrays)
 
-    for chip in arrays:
+    ld_arrays = ArrayClustering.create_array_subset(ld_individuals, arrays, min_markers = 0, min_individuals = 0)
+
+    for chip in ld_arrays:
         impute_individuals_on_chip(chip.individuals, args, haplotype_library)
 
 
@@ -248,10 +251,30 @@ def main():
     # If population imputation and phasing, build the haplotype reference panel and impute low density individuals.
 
     if args.phase or args.popimpute:
-        haplotype_library = create_haplotype_library(pedigree, args)
-        # haplotype_library = None
+        # haplotype_library = create_haplotype_library(pedigree, args)
+        haplotype_library = None
+
         if args.popimpute:
-            run_population_imputation(pedigree, args, haplotype_library, arrays)
+
+            for individual in pedigree:
+                individual.get_marker_score() # Set up the marker scores
+
+            ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
+
+            if args.ped_finish :
+                ld_for_pop_imputation = [ind for ind in ld_individuals if ind.target_population_imputation]
+                ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.target_population_imputation]
+            else:
+                ld_for_pop_imputation = ld_individuals
+                ld_for_ped_imputation = []
+
+            print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
+
+            run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
+
+            if args.ped_finish:
+                # If running pedigree imputation, finish off with a round of pedigree imputation with phase information integrated
+                Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1) 
 
 
     # Write out results

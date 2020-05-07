@@ -26,6 +26,33 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.reverse_view = None
         self.backward_information = None
 
+        self.marker_score = None
+        self.target_population_imputation = None
+
+
+    def get_marker_score(self):
+        if self.marker_score is None:
+
+            ind_score = np.sum(self.genotypes != 9)
+
+            sire_score = 0
+            dam_score = 0
+
+            if self.sire is not None:
+                sire_score = self.sire.get_marker_score()
+            if self.dam is not None:
+                dam_score = self.dam.get_marker_score()
+
+            parent_score = min(sire_score, dam_score)
+            if ind_score > parent_score:
+                self.marker_score = ind_score
+                self.target_population_imputation = True
+            else:
+                self.marker_score = parent_score
+                self.target_population_imputation = False 
+
+        return self.marker_score
+
     def setupIndividual(self):
 
 
