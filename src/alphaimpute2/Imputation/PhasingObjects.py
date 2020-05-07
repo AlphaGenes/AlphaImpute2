@@ -171,8 +171,8 @@ class PhasingSample(object):
 
 
     def sample(self, bw_library, ind):
-        # raw_genotypes = haplib_sample_alt(self, bw_library, ind)
-        raw_genotypes = haplib_sample(self, bw_library, ind)
+        raw_genotypes = haplib_sample_alt(self, bw_library, ind)
+        # raw_genotypes = haplib_sample(self, bw_library, ind)
         self.haplotypes = get_haplotypes(raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
 
@@ -380,6 +380,9 @@ def haplib_sample_alt(sample, bw_library, ind):
     mat_ranges = sample.forward.mat_ranges
 
 
+    random_samples = np.full(nLoci, 0, dtype = np.float32)
+    for i in range(nLoci):
+        random_samples[i] = random.random()
 
 
     for index in range(nLoci):
@@ -406,20 +409,114 @@ def haplib_sample_alt(sample, bw_library, ind):
 
         #ORIGINAL
         # current_pat, current_mat, hap_lib = update_states(previous_state, index, nZeros, zeroOccNext)
+        # NEW START
 
-        hap_lib = BurrowsWheelerLibrary.get_null_state(index, nZeros, zeroOccNext)
+        # # ORIGINAL
+        # # hap_lib = BurrowsWheelerLibrary.get_null_state(index, nZeros, zeroOccNext)
+        # # NEW START
+        hap_lib = ((0, nZeros[index]), (nZeros[index], nHaps))
+        # # NEW STOP
 
         if index != 0:
-            current_pat = BurrowsWheelerLibrary.update_state(current_states[0], index, nZeros, zeroOccNext)
-            current_mat = BurrowsWheelerLibrary.update_state(current_states[1], index, nZeros, zeroOccNext)
+            # current_pat = BurrowsWheelerLibrary.update_state(previous_state[0], index, nZeros, zeroOccNext)
+            # current_mat = BurrowsWheelerLibrary.update_state(previous_state[1], index, nZeros, zeroOccNext)
+        
+            for i in range(2):
+                state = previous_state[i]
+
+                # Note: index needs to be greater than 1.
+                int_start, int_end = state
+                if int_end - int_start <= 0:
+                    return_values = ((-1, -1), (-1, -1))
+                else:
+                    # Set up val_0
+
+                    if int_start == 0:
+                        lowerR = 0
+                    else:
+                        lowerR = zeroOccNext[int_start-1, index-1]
+                    upperR = zeroOccNext[int_end-1, index-1] #Number of zeros in the region. 
+
+                    if lowerR >= upperR:
+                        vals_0 = (-1, -1)
+                    else:
+                        vals_0 = (lowerR, upperR)
+
+                    # set up val_1
+
+                    if int_start == 0:
+                        lowerR = nZeros[index]
+                    else:
+                        lowerR = nZeros[index] + (int_start - zeroOccNext[int_start-1, index-1]) 
+                    upperR = nZeros[index] + (int_end - zeroOccNext[int_end-1, index-1])
+
+                    if lowerR >= upperR:
+                        vals_1 = (-1, -1)
+                    else:
+                        vals_1 = (lowerR, upperR)
+                    return_values = (vals_0, vals_1)
+
+                # Assignment
+                if i == 0:
+                    current_pat = return_values
+                if i == 1:
+                    current_mat = return_values
         else:
             current_pat = hap_lib
             current_mat = hap_lib
-        
+        # NEW STOP
+
 
         # Calculate genotype propotions for the next state, potentially excluding an individual's own haplotype.
         exclusion = (own_haplotypes[0, true_index], own_haplotypes[1, true_index]) 
-        pat_prop, mat_prop, hap_lib_prop = get_proportions(current_pat, current_mat, hap_lib, has_own_haplotypes, exclusion)
+        
+        # ORIGNAL
+        # pat_prop, mat_prop, hap_lib_prop = get_proportions(current_pat, current_mat, hap_lib, has_own_haplotypes, exclusion)
+        # NEW START
+
+        for ref in range(3):
+            if ref == 0:
+                haplotypes = current_pat
+            if ref == 1:
+                haplotypes = current_mat
+            if ref == 2:
+                haplotypes = hap_lib
+
+            prop_0 = haplotypes[0][1] - haplotypes[0][0]
+            if has_own_haplotypes:
+                if exclusion[0] >= haplotypes[0][0] and exclusion[0] < haplotypes[0][1]:
+                    prop_0 -=1
+
+                if exclusion[1] >= haplotypes[0][0] and exclusion[1] < haplotypes[0][1]:
+                    prop_0 -=1
+
+
+            prop_1 = haplotypes[1][1] - haplotypes[1][0]
+            if has_own_haplotypes:
+                if exclusion[0] >= haplotypes[1][0] and exclusion[0] < haplotypes[1][1]:
+                    prop_1 -=1
+
+                if exclusion[1] >= haplotypes[1][0] and exclusion[1] < haplotypes[1][1]:
+                    prop_1 -=1
+
+            combined = prop_0 + prop_1
+            if combined > 0:
+                output_prop = (prop_0/combined, prop_1/combined)
+            else:
+                output_prop = (0, 0)
+
+            if ref == 0:
+                pat_prop = output_prop
+            if ref == 1:
+                mat_prop = output_prop
+            if ref == 2:
+                hap_lib_prop = output_prop
+
+
+        # NEW END
+
+
+
 
         # Calculate genotype probabilities. 
 
@@ -427,6 +524,7 @@ def haplib_sample_alt(sample, bw_library, ind):
         # calculate_haps_probs(rec_rate, geno_probs, pat_prop, mat_prop, hap_lib_prop)
 
         #NEW START
+
         for i in range(4):
             if i == 0:
                 tmp_pat_prob = pat_prop
@@ -445,51 +543,77 @@ def haplib_sample_alt(sample, bw_library, ind):
                 tmp_mat_prob = hap_lib_prop
                 scale = rec_rate*rec_rate
 
-            values[i, 0] = tmp_pat_prob[0] * tmp_mat_prop[0] * scale
-            values[i, 1] = tmp_pat_prob[0] * tmp_mat_prop[1] * scale
-            values[i, 2] = tmp_pat_prob[1] * tmp_mat_prop[0] * scale
-            values[i, 3] = tmp_pat_prob[1] * tmp_mat_prop[1] * scale
+            geno_probs[i, 0] = tmp_pat_prob[0] * tmp_mat_prob[0] * scale
+            geno_probs[i, 1] = tmp_pat_prob[0] * tmp_mat_prob[1] * scale
+            geno_probs[i, 2] = tmp_pat_prob[1] * tmp_mat_prob[0] * scale
+            geno_probs[i, 3] = tmp_pat_prob[1] * tmp_mat_prob[1] * scale
+        
         #NEW END
 
 
-        # if calculate_forward_estimates:
-        #     calculate_forward_geno_probs(geno_probs, forward_geno_probs[:,true_index])
+        if calculate_forward_estimates:
+            #ORIGINAL
+            # calculate_forward_geno_probs(geno_probs, forward_geno_probs[:,true_index])
+
+            # NEW START
+
+            output = forward_geno_probs[:, true_index]
+            for i in range(4):
+                output[i] = 0.00000001
+                for j in range(4):
+                    output[i] += geno_probs[j, i] # Second value is recombination state.
+
+            total = 0
+            for i in range(len(output)):
+                total += output[i]
+            for i in range(len(output)):
+                output[i] /= total
+
+            # NEW END
+        
 
         # ORIGINAL LINE
         # add_penetrance(geno_probs, penetrance_and_backward[:,true_index])
+
+        #NEW START
 
         for j in range(4):
             for i in range(4):
                 # This is the individual's genotype probabilities. 
                 geno_probs[i,j] *= penetrance_and_backward[j, true_index]
 
+        #NEW END
 
         # ORIGINAL LINE
         # Select a new sample. 
         # rec_state, selected_genotype = weighted_sample_2D(geno_probs)
+
+        #NEW START:
+
         stop = False
         total = 0
-        mat = geno_probs
-        for i in range(mat.shape[0]):
-            for j in range(mat.shape[1]):
-                total += mat[i, j]
+        for i in range(geno_probs.shape[0]):
+            for j in range(geno_probs.shape[1]):
+                total += geno_probs[i, j]
         if total == 0:
             stop = True
             rec_state, selected_genotype = (-1, -1)
-        if not stop:
-            value = random.random()*total
+        # value = random.random()*total
+        value = random_samples[index]*total # Single random call and cycling through it.
 
-            for i in range(mat.shape[0]):
-                for j in range(mat.shape[1]):
-                    value -= mat[i,j]
+
+        for i in range(geno_probs.shape[0]):
+            for j in range(geno_probs.shape[1]):
+                if not stop:
+                    value -= geno_probs[i,j]
                     if value < 0:
                         rec_state, selected_genotype =  (i, j)
                         stop = True
-                        break
 
         if not stop:
             rec_state, selected_genotype = (0,0)
 
+        #NEW END
 
         # Calculate the score for the locus.
         score = 0
@@ -497,6 +621,7 @@ def haplib_sample_alt(sample, bw_library, ind):
 
         # ORIGINAL LINE:
         # score += score_from_genotype(observed_genotype, selected_genotype, match_score, no_match_score)
+        #NEW START
         new_score = 0
         if observed_genotype != 9:
             error = True
@@ -513,10 +638,12 @@ def haplib_sample_alt(sample, bw_library, ind):
                 new_score = match_score
 
         score += -new_score
+        #NEW END
 
 
         # ORIGINAL LINE:
         # score += score_from_rec_state(rec_state, rec_score, no_rec_score)
+        #NEW START
         new_score = 0
         if rec_state == 0:
             new_score = 2*no_rec_score 
@@ -528,6 +655,7 @@ def haplib_sample_alt(sample, bw_library, ind):
             new_score = 2*rec_score 
 
         score += -new_score
+        #NEW END
 
         rec[index] = score
 
@@ -535,7 +663,8 @@ def haplib_sample_alt(sample, bw_library, ind):
 
         # ORIGINAL LINE
         # current_state = get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib)
-
+        
+        #NEW START
         if selected_genotype == 0:
             pat_value, mat_value = (0,0)
         elif selected_genotype == 1:
@@ -560,6 +689,7 @@ def haplib_sample_alt(sample, bw_library, ind):
             mat_haps = hap_lib[mat_value]
 
         current_state = (pat_haps, mat_haps)
+        #NEW END
 
 
 
