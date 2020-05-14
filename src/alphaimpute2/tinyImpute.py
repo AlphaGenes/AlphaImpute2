@@ -78,6 +78,7 @@ def getArgs() :
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
     core_impute_parser.add_argument('-final_peeling_threshold',default=0.1, required=False, type=float, help='Genotype calling threshold for final round of peeling. Default: 0.1 (best guess genotypes).')
+    core_impute_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.98, required=False, type=float, help='Genotype calling threshold for final round of peeling when phasing is run. Default: 0.98.')
 
 
     core_impute_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
@@ -247,9 +248,9 @@ def main():
 
         final_cutoff = args.final_peeling_threshold
         if args.phase or args.popimpute:
-            final_cutoff = 0.95
+            final_cutoff = args.final_peeling_threshold_for_phasing
         
-        Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .95)
+        Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = final_cutoff)
 
     # If population imputation and phasing, build the haplotype reference panel and impute low density individuals.
 
