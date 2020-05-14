@@ -153,6 +153,13 @@ class ArrayContainer():
         return new_container
 
 
+    def write_out_arrays(self, file_name):
+        with open(file_name, "w+") as f:
+
+            for i, array in enumerate(self.arrays):
+                for individual in array.individuals :
+                    f.write(f"{individual.idx} {i}\n")
+
 def cluster_individuals_by_array(individuals, min_frequency) :
 
     arrays = ArrayContainer()

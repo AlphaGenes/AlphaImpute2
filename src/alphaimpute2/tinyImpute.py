@@ -73,9 +73,11 @@ def getArgs() :
     core_impute_parser.add_argument('-pedimpute', action='store_true', required=False, help='Flag to run the pedigree based imputation algorithm.')
     core_impute_parser.add_argument('-ped_finish', action='store_true', required=False, help='Flag to run the pedigree imputation after population imputation.')
    
+    core_impute_parser.add_argument('-cluster_only', action='store_true', required=False, help='Flag to just cluster individuals into marker arrays and write out results.')
 
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
+    core_impute_parser.add_argument('-final_peeling_threshold',default=0.1, required=False, type=float, help='Genotype calling threshold for final round of peeling. Default: 0.1 (best guess genotypes).')
 
 
     core_impute_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
@@ -86,9 +88,6 @@ def getArgs() :
     core_impute_parser.add_argument('-hd_threshold',default=0.9, required=False, type=float, help='Threshold for high density individuals when building the haplotype library. Default: 0.8.')
     core_impute_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
     
-
-    core_impute_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
-
     return InputOutput.parseArgs("AlphaImpute", parser)
 
 def writeOutResults(pedigree, args):
@@ -237,12 +236,16 @@ def main():
     # If pedigree imputation. Run initial round of pedigree imputation.
     # If no population imputation, run with a low cutoff.
 
-    if args.phase or args.popimpute:
+    if args.phase or args.popimpute or args.cluster_only:
         arrays = ArrayClustering.cluster_individuals_by_array(individuals, args.min_chip)
+
+    if args.cluster_only :
+        arrays.write_out_arrays(args.out + ".arrays")
+        exit()
 
     if args.pedimpute:
 
-        final_cutoff = 0.1
+        final_cutoff = args.final_peeling_threshold
         if args.phase or args.popimpute:
             final_cutoff = 0.95
         
@@ -251,8 +254,8 @@ def main():
     # If population imputation and phasing, build the haplotype reference panel and impute low density individuals.
 
     if args.phase or args.popimpute:
-        # haplotype_library = create_haplotype_library(pedigree, args)
-        haplotype_library = None
+        haplotype_library = create_haplotype_library(pedigree, args)
+        # haplotype_library = None
 
         if args.popimpute:
 
