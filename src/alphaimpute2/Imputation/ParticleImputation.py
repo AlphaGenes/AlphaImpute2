@@ -173,6 +173,9 @@ def set_hap_from_range(range_object, hap, global_start, global_stop, bw_library)
     encoding_index = range_object.encoding_index
 
     # Select a random haplotype.
+    
+    # if range_object.hap_range[0] == range_object.hap_range[1]:
+    # print(range_object.hap_range, range_object.start, range_object.stop, range_object.encoding_index)
     bw_index = random.randrange(range_object.hap_range[0], range_object.hap_range[1])
     haplotype_index = bw_library.a[bw_index, encoding_index]
     hap[global_start:global_stop] = bw_library.full_haps[haplotype_index, global_start:global_stop]

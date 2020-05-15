@@ -600,18 +600,23 @@ def haplib_sample_alt(sample, bw_library, ind):
             rec_state, selected_genotype = (-1, -1)
         # value = random.random()*total
         value = random_samples[index]*total # Single random call and cycling through it.
+        original_value = value
 
+        last_non_zero = (0,0)
 
         for i in range(geno_probs.shape[0]):
             for j in range(geno_probs.shape[1]):
                 if not stop:
                     value -= geno_probs[i,j]
-                    if value < 0:
+                    if geno_probs[i,j] > 0:
+                        last_non_zero = (i,j)
+
+                    if value <= 0:
                         rec_state, selected_genotype =  (i, j)
                         stop = True
 
         if not stop:
-            rec_state, selected_genotype = (0,0)
+            rec_state, selected_genotype = last_non_zero
 
         #NEW END
 
@@ -702,7 +707,23 @@ def haplib_sample_alt(sample, bw_library, ind):
         mat_ranges[0, index] = current_state[1][0]
         mat_ranges[1, index] = current_state[1][1]
 
-    
+        # if pat_ranges[0, index] == pat_ranges[1, index] :
+        #     print(geno_probs)
+        #     print(rec_state, selected_genotype)
+        #     print(hap_lib, current_pat, current_mat)
+        #     print(hap_lib, current_pat, current_mat)
+        #     print(penetrance_and_backward[:, true_index])
+        #     print(total, value, stop, original_value)
+
+        # if mat_ranges[0, index] == mat_ranges[1, index] :
+        #     print(geno_probs)
+        #     print(rec_state, selected_genotype)
+        #     print(hap_lib, current_pat, current_mat)
+        #     print(hap_lib, current_pat, current_mat)
+        #     print(penetrance_and_backward[:, true_index])
+        #     print(total, value, stop, original_value)
+
+
         previous_state = current_state
     
     sample.forward.forward_geno_probs = forward_geno_probs
@@ -712,6 +733,14 @@ def haplib_sample_alt(sample, bw_library, ind):
     if track_hap_info:
         for index in range(nLoci):          
             if index > 0 and rec_states[index] > 0 and track_hap_info: 
+
+                # if pat_ranges[0, index -1] == pat_ranges[1, index -1] :
+                #     for i in range(nLoci):
+                #         print(pat_ranges[0, i], pat_ranges[1, i])
+
+                # if mat_ranges[0, index -1] == mat_ranges[1, index -1] :
+                #     for i in range(nLoci):
+                #         print(mat_ranges[0, i], mat_ranges[1, i])
 
                 previous_state = ((pat_ranges[0, index -1], pat_ranges[1, index -1]),(mat_ranges[0, index -1], mat_ranges[1, index -1]))
                 update_hap_info(sample.hap_info, index, rec_states[index], previous_state)
