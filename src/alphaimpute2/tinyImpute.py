@@ -190,6 +190,9 @@ def run_population_imputation(ld_individuals, args, haplotype_library, arrays):
 
     ld_arrays = ArrayClustering.create_array_subset(ld_individuals, arrays, min_markers = 0, min_individuals = 0)
 
+    ld_arrays.write_out_arrays(args.out + "post_ped.arrays")
+
+
     for chip in ld_arrays:
         impute_individuals_on_chip(chip.individuals, args, haplotype_library)
 
@@ -239,6 +242,7 @@ def main():
 
     if args.phase or args.popimpute or args.cluster_only:
         arrays = ArrayClustering.cluster_individuals_by_array(individuals, args.min_chip)
+        arrays.write_out_arrays(args.out + ".arrays")
 
     if args.cluster_only :
         arrays.write_out_arrays(args.out + ".arrays")
