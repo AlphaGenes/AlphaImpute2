@@ -146,6 +146,7 @@ class ArrayContainer():
             self.arrays.remove(array) 
 
 
+
     def copy(self):
         new_container = ArrayContainer()
         new_container.arrays = [array.copy() for array in self.arrays]
@@ -154,9 +155,11 @@ class ArrayContainer():
 
 
     def write_out_arrays(self, file_name):
+        sorted_arrays = sorted(self.arrays, key = lambda array: array.n_markers, reverse = True)
+
         with open(file_name, "w+") as f:
 
-            for i, array in enumerate(self.arrays):
+            for i, array in enumerate(sorted_arrays):
                 for individual in array.individuals :
                     f.write(f"{individual.idx} {i}\n")
 
