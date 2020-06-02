@@ -121,7 +121,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
 
         if self.haplotypes is not None:
-            new_ind.haplotypes = [np.ascontiguousarray(np.flip(self.haplotypes[0])), np.ascontiguousarray(np.flip(self.haplotypes[1]))]
+            new_ind.haplotypes = (np.ascontiguousarray(np.flip(self.haplotypes[0])), np.ascontiguousarray(np.flip(self.haplotypes[1])))
         else:
             new_ind.setupIndividual()
             Imputation.ind_align(new_ind)

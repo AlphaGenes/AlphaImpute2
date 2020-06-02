@@ -93,7 +93,9 @@ def getArgs() :
     prephase_parser.add_argument('-allow_prephased_bypass', action='store_true', required=False, help='Allow the algorithm to use pedigree phased haplotypes to create a reference library.')
 
     prephase_parser.add_argument('-prephased_threshold',default=5000, required=False, type=int, help='Number of individuals required to be fully phased before using the pre-phase bypass. Default: 5000.')
-
+    
+    integrated_parser = parser.add_argument_group("Integrated options") 
+    integrated_parser.add_argument('-pop_priority',default=0.9, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.9')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -175,7 +177,7 @@ def create_haplotype_library(hd_individuals, args):
 
         print("Phasing", len(hd_individuals), "HD individuals")
         cycles = [1] + [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
-        run_phasing(individuals, cycle, args)
+        run_phasing(hd_individuals, cycles, args)
 
     return hd_individuals
 
@@ -259,7 +261,7 @@ def run_population_only(pedigree, arrays, args):
     haplotype_library = create_haplotype_library(hd_individuals, args)
 
     ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
-    run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
+    run_population_imputation(ld_individuals, args, haplotype_library, arrays)
 
 def run_joint(pedigree, arrays, args):
 
@@ -269,6 +271,7 @@ def run_joint(pedigree, arrays, args):
 
     haplotype_library = create_haplotype_library(hd_individuals, args)
 
+    ld_individuals = ld_for_pop_imputation + ld_for_ped_imputation
     print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
 
     run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
