@@ -59,9 +59,6 @@ def time_func(text):
 @time_func("Heuristic Peeling")
 def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
     # Set up peeling view
-    for ind in pedigree:
-        ind.setPeelingView()
-
     setupHeuristicPeeling(pedigree, args)
 
     # Run peeling cycle. Cutoffs are for genotype probabilities. 
@@ -78,10 +75,107 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
     for ind in pedigree:
         ind.peeling_view = None
 
+
+@profile
+@time_func("Integrated Heuristic Peeling")
+def run_integrated_peeling(pedigree, args, final_cutoff = .3):
+    
+    # Set up peeling view
+    setupHeuristicPeeling(pedigree, args)
+
+    # Run peeling cycle. Cutoffs are for genotype probabilities. 
+    # Segregation call value is hard-coded to .99
+    cutoffs = [.99] + [args.cutoff for i in range(args.cycles - 1)]
+    runPeelingCycles(pedigree, args, cutoffs)
+
+    # Set to best-guess genotypes -- will refine this later.
+    for ind in pedigree:
+        ind.set_original_genotypes() # May need to reset individuals
+        call_genotypes(ind, final_cutoff, args.error)
+
+
+    # Split the population into three groups:
+    # HD for phasing
+    # Individuals for population imputation
+    # Individuals for pedigree imputation
+
+    for individual in pedigree:
+        individual.get_marker_score(args.pop_priority) # Set up the marker scores
+
+    hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > args.hd_threshold]
+    ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
+
+    ld_for_pop_imputation = [ind for ind in ld_individuals if ind.target_population_imputation]
+    ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.target_population_imputation]
+
+    # Already set for this so don't need to run.
+    # for ind in hd_individuals + ld_for_pop_imputation:
+    #     call_genotypes(ind, final_cutoff, args.error)
+
+    for ind in ld_for_ped_imputation:
+        call_genotypes_posterior(ind, final_cutoff, args.error)
+
+    # Clear peeling view
+    for ind in pedigree:
+        ind.peeling_view = None
+
+
+    return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
+
+def run_integrated_peel_down(pedigree, imputation_targets, args, final_cutoff):
+    
+    setupHeuristicPeeling(pedigree, args)
+
+    # set targets of imputation
+    for ind in pedigree:
+        ind.peeling_view.imputation_target = False
+
+    for ind in imputation_targets:
+        ind.peeling_view.imputation_target = True
+
+    pedigreePeelDown(pedigree, args, args.cutoff)
+
+    # Call genotypes.
+    for ind in imputation_targets:
+        call_genotypes(ind, final_cutoff, args.error)
+
+    for ind in pedigree:
+        ind.peeling_view = None
+
+@time_func("Peel down")
+@profile
+def pedigreePeelDown(pedigree, args, cutoff):
+    # This function peels down a pedigree; i.e. it finds which regions an individual inherited from their parents, and then fills in the individual's anterior term using that information.
+    # To do this peeling, individual's genotypes should be set to poster+penetrance; parent's genotypes should be set to All.
+    # Since parents may be shared across families, we set the parents seperately from the rest of the family. 
+    # We then set the child genotypes, calculate the segregation estimates, and calculate the anterior term on a family by family basis (set_segregation_peel_down).
+
+    for generation in pedigree.generations:
+        for parent in generation.parents:
+            parent.peeling_view.setGenotypesAll(cutoff)
+
+        if args.maxthreads <= 1:
+            for family in generation.families:
+                set_segregation_peel_down(family, cutoff)
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
+                executor.map(set_segregation_peel_down, generation.families, repeat(cutoff))
+
+
+def call_genotypes_posterior(ind, final_cutoff, error_rate):
+
+    if ind.peeling_view.has_offspring:
+        ind.peeling_view.setGenotypesPosterior(final_cutoff)
+
+    else:
+        ind.restore_original_genotypes()
+
+
 def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and penetrance value for Heuristic peeling.
 
     for ind in pedigree:
+        ind.setPeelingView()
         ind.peeling_view.setupProbabilityValues(args.error)
 
     # Set anterior values for founders. 
@@ -185,9 +279,11 @@ def set_segregation_peel_down(family, cutoff):
     # Trying out the new list interface.    
     offspring = numba.typed.List()
     for ind in family.offspring:
-        offspring.append(ind.peeling_view)
+        if ind.peeling_view.imputation_target:
+            offspring.append(ind.peeling_view)
     # offspring = [ind.peeling_view for ind in family.offspring]
-    set_segregation_peel_down_jit(sire, dam, offspring, cutoff)
+    if len(offspring) > 0:
+        set_segregation_peel_down_jit(sire, dam, offspring, cutoff)
 
 @jit(nopython=True, nogil = True)
 def set_segregation_peel_down_jit(sire, dam, offspring, cutoff):

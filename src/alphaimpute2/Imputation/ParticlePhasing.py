@@ -36,7 +36,6 @@ def create_library_and_phase(individuals, cycles, args) :
     for ind in individuals:
         ind.phasing_view.setValueFromGenotypes(ind.phasing_view.penetrance, 0.01) # args.error?
 
-    phase_round(individuals, individual_exclusion = True, set_haplotypes = False, n_samples = 1)
     for i in range(len(cycles) - 1):
         phase_round(individuals, individual_exclusion = True, set_haplotypes = False, n_samples = cycles[i])
 

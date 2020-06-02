@@ -89,6 +89,12 @@ def getArgs() :
     core_impute_parser.add_argument('-hd_threshold',default=0.9, required=False, type=float, help='Threshold for high density individuals when building the haplotype library. Default: 0.8.')
     core_impute_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
     
+    prephase_parser = parser.add_argument_group("Prephase options")
+    prephase_parser.add_argument('-allow_prephased_bypass', action='store_true', required=False, help='Allow the algorithm to use pedigree phased haplotypes to create a reference library.')
+
+    prephase_parser.add_argument('-prephased_threshold',default=5000, required=False, type=int, help='Number of individuals required to be fully phased before using the pre-phase bypass. Default: 5000.')
+
+
     return InputOutput.parseArgs("AlphaImpute", parser)
 
 def writeOutResults(pedigree, args):
@@ -142,28 +148,48 @@ def call_genotypes(matrix):
     calledGenotypes = np.argmax(matrixCollapsedHets, axis = 0)
     return calledGenotypes.astype(np.int8)
 
+def create_haplotype_library(hd_individuals, args):
 
-def create_haplotype_library(pedigree, args):
+    pre_phase_ran = False
 
-    hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > args.hd_threshold]
-    
-    print("Phasing", len(hd_individuals), "HD individuals")
-    print("")
-    print("Running backward passes")
-    cycles = [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
+    if args.allow_prephased_bypass:
 
-    rev_individuals = setup_reverse_individuals(hd_individuals)
+        # Try to use prephased haplotypes to do the phasing -- if so, run two rounds of phasing and then a round of imputation.
+        # Need to tune parameters here...
+
+        prephased_hd_individuals = [ind for ind in hd_individuals if ind.percent_phased > .95]
+        unphased_hd_individuals = [ind for ind in hd_individuals if ind.percent_phased <= .95]
+
+        if len(prephased_hd_individuals) > args.prephased_threshold :
+            pre_phase_ran = True
+            
+            print("Phasing", len(prephased_hd_individuals), "pre-phased HD individuals")
+            cycles = [args.n_phasing_particles]*2
+            run_phasing(prephased_hd_individuals, cycles, args)
 
 
-    ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
+            print("Phasing remaining HD individuals.")
+            impute_individuals_on_chip(unphased_hd_individuals, args, prephased_hd_individuals)
 
-    integrate_reverse_individuals(hd_individuals)
-    print("")
-    print("Running forward passes")
+    if not pre_phase_ran :
 
-    ParticlePhasing.create_library_and_phase(hd_individuals, cycles, args)     
+        print("Phasing", len(hd_individuals), "HD individuals")
+        cycles = [1] + [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
+        run_phasing(individuals, cycle, args)
 
     return hd_individuals
+
+
+def run_phasing(individuals, cycles, args):
+    print("Running backward passes")
+    rev_individuals = setup_reverse_individuals(individuals)
+    ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
+    integrate_reverse_individuals(individuals)
+
+    print("Running forward passes")
+    ParticlePhasing.create_library_and_phase(individuals, cycles, args)     
+
+
 
 def setup_reverse_individuals(individuals):
 
@@ -221,6 +247,37 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
     ParticleImputation.impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
 
 
+def run_pedigree_only(pedigree, args):
+
+    final_cutoff = args.final_peeling_threshold
+    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = final_cutoff)
+
+def run_population_only(pedigree, arrays, args):
+
+    hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > args.hd_threshold]
+
+    haplotype_library = create_haplotype_library(hd_individuals, args)
+
+    ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
+    run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
+
+def run_joint(pedigree, arrays, args):
+
+    final_cutoff = args.final_peeling_threshold_for_phasing
+    
+    hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation = Heuristic_Peeling.run_integrated_peeling(pedigree, args, final_cutoff = final_cutoff)
+
+    haplotype_library = create_haplotype_library(hd_individuals, args)
+
+    print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
+
+    run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
+
+    # Run final round of heuristic peeling, peeling down.
+    Heuristic_Peeling.run_integrated_peel_down(pedigree, ld_for_ped_imputation, args, final_cutoff = .1) 
+
+
+
 
 @profile
 def main():
@@ -240,50 +297,25 @@ def main():
     # If pedigree imputation. Run initial round of pedigree imputation.
     # If no population imputation, run with a low cutoff.
 
-    if args.phase or args.popimpute or args.cluster_only:
-        arrays = ArrayClustering.cluster_individuals_by_array(individuals, args.min_chip)
-        arrays.write_out_arrays(args.out + ".arrays")
+    pedigree_only = args.pedimpute and not (args.phase or args.popimpute)
+    pop_only = (args.phase or args.popimpute) and not args.pedimpute
+    joint = (args.phase or args.popimpute) and args.pedimpute
 
-    if args.cluster_only :
+    if args.cluster_only:
+        arrays = ArrayClustering.cluster_individuals_by_array(individuals, args.min_chip)
         arrays.write_out_arrays(args.out + ".arrays")
         exit()
 
-    if args.pedimpute:
+    elif pedigree_only:
+        run_pedigree_only(pedigree, args)
 
-        final_cutoff = args.final_peeling_threshold
-        if args.phase or args.popimpute:
-            final_cutoff = args.final_peeling_threshold_for_phasing
-        
-        Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = final_cutoff)
+    elif pop_only or joint:
+        arrays = ArrayClustering.cluster_individuals_by_array(individuals, args.min_chip)
 
-    # If population imputation and phasing, build the haplotype reference panel and impute low density individuals.
-
-    if args.phase or args.popimpute:
-        haplotype_library = create_haplotype_library(pedigree, args)
-        # haplotype_library = None
-
-        if args.popimpute:
-
-            for individual in pedigree:
-                individual.get_marker_score() # Set up the marker scores
-
-            ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
-
-            if args.ped_finish :
-                ld_for_pop_imputation = [ind for ind in ld_individuals if ind.target_population_imputation]
-                ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.target_population_imputation]
-            else:
-                ld_for_pop_imputation = ld_individuals
-                ld_for_ped_imputation = []
-
-            print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
-
-            run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
-
-            if args.ped_finish:
-                # If running pedigree imputation, finish off with a round of pedigree imputation with phase information integrated
-                Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = .1) 
-
+        if pop_only:
+            run_population_only(pedigree, arrays, args)
+        if joint:
+            run_joint(pedigree, arrays, args)
 
     # Write out results
     startTime = datetime.datetime.now()

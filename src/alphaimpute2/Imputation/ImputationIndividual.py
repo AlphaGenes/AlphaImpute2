@@ -29,8 +29,34 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.marker_score = None
         self.target_population_imputation = None
 
+        # There may be times that we want to store original genotype and haplotype information.
+        self.original_genotypes = None
+        self.original_haplotypes = None
 
-    def get_marker_score(self):
+    def set_original_genotypes(self):
+
+        self.original_genotypes = self.genotypes.copy()
+        self.original_haplotypes = [self.haplotypes[0].copy(), self.haplotypes[1].copy()]
+
+    def restore_original_genotypes(self):
+
+        self.genotypes[:] = self.original_genotypes
+        self.haplotypes[0][:] = self.original_haplotypes[0]
+        self.haplotypes[1][:] = self.original_haplotypes[1]
+
+        self.original_genotypes = None
+        self.original_haplotypes = None
+
+    @property
+    def percent_phased(self):
+        return np.mean( (self.haplotypes[0] != 9) & (self.haplotypes[1] != 9) )
+    
+
+    def get_marker_score(self, ratio = 0.9):
+        # Ratio determines what percentage more markers the parents need to have than the offspring.
+        # If parents and offspring are similar, we want to just run the pop. imputation on the offspring directly.
+        # Default is 90%.
+
         if self.marker_score is None:
 
             ind_score = np.sum(self.genotypes != 9)
@@ -44,7 +70,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
                 dam_score = self.dam.get_marker_score()
 
             parent_score = min(sire_score, dam_score)
-            if ind_score > parent_score:
+            if ind_score > ratio*parent_score:
                 self.marker_score = ind_score
                 self.target_population_imputation = True
             else:
@@ -94,8 +120,11 @@ class AlphaImputeIndividual(Pedigree.Individual):
         new_ind = AlphaImputeIndividual(self.idx, self.idn)
         new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
 
-        new_ind.setupIndividual()
-        Imputation.ind_align(new_ind)
+        if self.haplotypes is not None:
+            new_ind.haplotypes = [np.ascontiguousarray(np.flip(self.haplotypes[0])), np.ascontiguousarray(np.flip(self.haplotypes[1]))]
+        else:
+            new_ind.setupIndividual()
+            Imputation.ind_align(new_ind)
 
         self.reverse_view = new_ind
         new_ind.reverse_view = self
@@ -224,6 +253,7 @@ spec['nLoci'] = int64
 spec['genotypes'] = int8[:]
 
 spec['has_offspring'] = boolean
+spec['imputation_target'] = boolean
 # Haplotypes and reads are a tuple of int8 and int64.
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
@@ -250,7 +280,7 @@ class jit_Peeling_Individual(object):
         self.idn = idn
         self.genotypes = genotypes
         self.haplotypes = haplotypes
-        
+        self.imputation_target = True
 
 
         # Initial value for segregation is .5 to represent uncertainty between haplotype inheritance.
