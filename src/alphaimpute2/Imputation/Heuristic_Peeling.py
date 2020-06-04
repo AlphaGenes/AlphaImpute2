@@ -100,7 +100,7 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3):
     # Individuals for pedigree imputation
 
     for individual in pedigree:
-        individual.get_marker_score(args.pop_priority) # Set up the marker scores
+        individual.get_marker_score(args.chip_threshold) # Set up the marker scores
 
     hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > args.hd_threshold]
     ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]

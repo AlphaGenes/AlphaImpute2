@@ -65,19 +65,47 @@ class AlphaImputeIndividual(Pedigree.Individual):
             dam_score = 0
 
             if self.sire is not None:
-                sire_score = self.sire.get_marker_score()
+                sire_score = self.sire.get_marker_score(ratio)
             if self.dam is not None:
-                dam_score = self.dam.get_marker_score()
+                dam_score = self.dam.get_marker_score(ratio)
 
-            parent_score = min(sire_score, dam_score)
-            if ind_score > ratio*parent_score:
-                self.marker_score = ind_score
-                self.target_population_imputation = True
-            else:
-                self.marker_score = parent_score
-                self.target_population_imputation = False 
+            # parent_score = min(sire_score, dam_score)
+
+            self.marker_score, self.target_population_imputation = self.marker_score_decision_rule(ind_score, sire_score, dam_score, ratio)            
 
         return self.marker_score
+
+    def marker_score_decision_rule_prioritize_individual(self, ind_score, sire_score, dam_score, ratio):
+            parent_score = min(sire_score, dam_score)
+
+            if ratio*parent_score > ind_score:
+                return parent_score, False
+
+            return ind_score, True
+
+
+
+    def marker_score_decision_rule_prioritize_parents(self, ind_score, sire_score, dam_score, ratio):
+            parent_score = min(sire_score, dam_score)
+
+            if parent_score > ratio*ind_score :
+                return parent_score, False
+
+            return ind_score, True
+
+    
+    def marker_score_decision_rule_prioritize_balanced(self, ind_score, sire_score, dam_score, ratio):
+            worst_parent_score = min(sire_score, dam_score)
+            best_parent_score = min(sire_score, dam_score)
+
+            # One of the parents is at a higher density, and the other parent is on roughly the same density.
+
+            if ind_score < ratio*best_parent_score and ind_score*ratio < worst_parent_score:
+                return (sire_score + dam_score)/2, False
+
+            return ind_score, True
+
+
 
     def setupIndividual(self):
 

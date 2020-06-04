@@ -95,7 +95,8 @@ def getArgs() :
     prephase_parser.add_argument('-prephased_threshold',default=5000, required=False, type=int, help='Number of individuals required to be fully phased before using the pre-phase bypass. Default: 5000.')
     
     integrated_parser = parser.add_argument_group("Integrated options") 
-    integrated_parser.add_argument('-pop_priority',default=0.9, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.9')
+    integrated_parser.add_argument('-chip_threshold',default=0.9, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.9')
+    integrated_parser.add_argument('-integrated_decision_rule',default="individual", required=False, type=str, help='Decision rule to use when determining whether to use population or pedigree imputation. Options: individual, balanced, parents. Default: individual')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -264,6 +265,8 @@ def run_population_only(pedigree, arrays, args):
     run_population_imputation(ld_individuals, args, haplotype_library, arrays)
 
 def run_joint(pedigree, arrays, args):
+    # Set decision rule
+    set_decision_rule(pedigree, args)
 
     final_cutoff = args.final_peeling_threshold_for_phasing
     
@@ -280,6 +283,16 @@ def run_joint(pedigree, arrays, args):
     Heuristic_Peeling.run_integrated_peel_down(pedigree, ld_for_ped_imputation, args, final_cutoff = .1) 
 
 
+def set_decision_rule(pedigree, args):
+    for ind in pedigree:
+        if args.integrated_decision_rule == "individual":
+            ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_individual
+        
+        if args.integrated_decision_rule == "parents":
+            ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents
+        
+        if args.integrated_decision_rule == "balanced":
+            ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_balanced
 
 
 @profile

@@ -37,7 +37,7 @@ setup(
     ],
     entry_points = {
     'console_scripts': [
-        'TinyImpute=tinyImpute:main'
+        'AlphaImpute2=tinyImpute:main'
         ],
     },
     install_requires=[
