@@ -37,15 +37,21 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
     # Sets up the haplotype reference library using only the loci in loci. 
     haplotype_library.setup_library(loci)
 
+    temp_run_impute(jit_individuals, haplotype_library, n_samples)
+
+@time_func("Core Imputation")
+def temp_run_impute(jit_individuals, haplotype_library, n_samples):
+
     chunksize = 10
     # Run imputation; splitting into threads if needed
-    if InputOutput.args.maxthreads <= 1 or len(individuals) < chunksize:
+    if InputOutput.args.maxthreads <= 1 or len(jit_individuals) < chunksize:
         impute_group(jit_individuals, haplotype_library.library, n_samples)
 
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=InputOutput.args.maxthreads) as executor:
             groups = split_individuals_into_groups(jit_individuals, chunksize)
             executor.map(impute_group, groups, repeat(haplotype_library.library), repeat(n_samples))
+
 
 def split_individuals_into_groups(individuals, chunksize):
     # Split out a list of individuals into groups that are approximately chunksize long.

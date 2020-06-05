@@ -62,7 +62,7 @@ def get_reference_library(individuals, individual_exclusion = False, setup = Tru
     haplotype_library = BurrowsWheelerLibrary.BurrowsWheelerLibrary()
     
     for ind in individuals:
-        for hap in ind.phasing_view.current_haplotypes:
+        for hap in ind.current_haplotypes:
             # Unless set to something else, ind.current_haplotypes tracks ind.haplotypes.
             if reverse:
                 new_hap = np.ascontiguousarray(np.flip(hap))
@@ -138,7 +138,7 @@ def phase(ind, haplotype_library, set_haplotypes, n_samples) :
 
     pat_hap, mat_hap = sample_container.get_consensus(50)
   
-    if set_haplotypes:
+    if set_haplotypes and ind.population_imputation_target:
         add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 
         ind.backward[:,:] = 0

@@ -27,11 +27,40 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.backward_information = None
 
         self.marker_score = None
-        self.target_population_imputation = None
+        self.population_imputation_target = None
 
         # There may be times that we want to store original genotype and haplotype information.
         self.original_genotypes = None
         self.original_haplotypes = None
+
+        self.current_haplotypes = None
+
+        self.masked_sire = None
+        self.masked_dam = None
+
+    def mask_parents(self):
+        self.masked_sire = self.sire
+        self.masked_dam = self.dam
+
+        if self.sire is not None:
+            self.sire.offspring.remove(self)
+
+        if self.dam is not None:
+            self.dam.offspring.remove(self)
+
+        self.sire = None
+        self.dam = None
+
+    def unmask_parents(self):
+        self.sire = self.masked_sire
+        self.dam = self.masked_dam
+
+        if self.sire is not None:
+            self.sire.offspring.append(self)
+
+        if self.dam is not None:
+            self.dam.offspring.append(self)
+
 
     def set_original_genotypes(self):
 
@@ -71,7 +100,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
             # parent_score = min(sire_score, dam_score)
 
-            self.marker_score, self.target_population_imputation = self.marker_score_decision_rule(ind_score, sire_score, dam_score, ratio)            
+            self.marker_score, self.population_imputation_target = self.marker_score_decision_rule(ind_score, sire_score, dam_score, ratio)            
 
         return self.marker_score
 
@@ -140,8 +169,9 @@ class AlphaImputeIndividual(Pedigree.Individual):
             backward = np.full((4, nLoci), 1, dtype = np.float32)
         else:
             backward = self.backward_information
+        self.current_haplotypes = (self.haplotypes[0].copy(), self.haplotypes[1].copy())
 
-        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, nLoci)
+        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, self.current_haplotypes, self.population_imputation_target, nLoci)
 
 
     def reverse_individual(self):
@@ -187,18 +217,19 @@ spec['backward'] = float32[:,:]
 
 spec['own_haplotypes'] = int64[:,:]
 spec['has_own_haplotypes'] = boolean
+spec['population_imputation_target'] = boolean
 
 @jitclass(spec)
 class jit_Phasing_Individual(object):
     '''
     This class holds data for phasing a given individual.
     '''
-    def __init__(self, idn, genotypes, haplotypes, backward, nLoci):
+    def __init__(self, idn, genotypes, haplotypes, backward, current_haplotypes, population_imputation_target, nLoci):
         self.idn = idn
         self.nLoci = nLoci
         self.genotypes = genotypes
         self.haplotypes = haplotypes
-        self.current_haplotypes = (haplotypes[0].copy(), haplotypes[1].copy())
+        self.current_haplotypes = current_haplotypes
         
         self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
 
@@ -209,6 +240,8 @@ class jit_Phasing_Individual(object):
 
         self.own_haplotypes = np.full((0, 0), 0, dtype = np.int64)
         self.has_own_haplotypes = False
+
+        self.population_imputation_target = True
 
     def set_own_haplotypes(self, haplotypes_in):
         self.own_haplotypes = haplotypes_in
@@ -272,7 +305,7 @@ example_phasing_individual = None
 def get_example_phasing_individual():
     global example_phasing_individual
     if example_phasing_individual is None:
-        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), np.full((4, 2), 0, dtype = np.float32), 2)
+        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), np.full((4, 2), 0, dtype = np.float32), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), True, 2)
     return example_phasing_individual
 
 spec = OrderedDict()

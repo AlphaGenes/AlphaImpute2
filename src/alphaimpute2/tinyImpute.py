@@ -12,6 +12,7 @@ from .Imputation import ArrayClustering
 import datetime
 import argparse
 import numpy as np
+from numba import njit
 
 try:
     profile
@@ -78,7 +79,7 @@ def getArgs() :
     core_impute_parser.add_argument('-cutoff',default=.95, required=False, type=float, help='Genotype calling threshold.')
     core_impute_parser.add_argument('-cycles',default=4, required=False, type=int, help='Number of peeling cycles.')
     core_impute_parser.add_argument('-final_peeling_threshold',default=0.1, required=False, type=float, help='Genotype calling threshold for final round of peeling. Default: 0.1 (best guess genotypes).')
-    core_impute_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.98, required=False, type=float, help='Genotype calling threshold for final round of peeling when phasing is run. Default: 0.98.')
+    core_impute_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.9, required=False, type=float, help='Genotype calling threshold for final round of peeling when phasing is run. Default: 0.98.')
 
 
     core_impute_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
@@ -95,8 +96,9 @@ def getArgs() :
     prephase_parser.add_argument('-prephased_threshold',default=5000, required=False, type=int, help='Number of individuals required to be fully phased before using the pre-phase bypass. Default: 5000.')
     
     integrated_parser = parser.add_argument_group("Integrated options") 
-    integrated_parser.add_argument('-chip_threshold',default=0.9, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.9')
+    integrated_parser.add_argument('-chip_threshold',default=0.95, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.95')
     integrated_parser.add_argument('-integrated_decision_rule',default="individual", required=False, type=str, help='Decision rule to use when determining whether to use population or pedigree imputation. Options: individual, balanced, parents. Default: individual')
+    integrated_parser.add_argument('-joint_type',default="integrated", required=False, type=str, help='Decision rule to use when determining which joint option to use. Options: integrated, pedigree. Default: integrated')
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -155,7 +157,7 @@ def create_haplotype_library(hd_individuals, args):
 
     pre_phase_ran = False
 
-    if args.allow_prephased_bypass:
+    if False: # args.allow_prephased_bypass:
 
         # Try to use prephased haplotypes to do the phasing -- if so, run two rounds of phasing and then a round of imputation.
         # Need to tune parameters here...
@@ -230,12 +232,12 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
 
     average_marker_density = np.floor(np.mean([np.sum(ind.genotypes != 9) for ind in ld_individuals]))
 
+    print("")
     print("Imputing", len(ld_individuals), f"LD individuals genotyped with an average of {average_marker_density} markers")
 
     flipped_dict = dict()
     reversed_ld = setup_reverse_individuals(ld_individuals)
 
-    print("")
     print("Running backwards passes")
 
     library = ParticlePhasing.get_reference_library(haplotype_library, setup = False, reverse = True)
@@ -243,7 +245,6 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
 
     integrate_reverse_individuals(ld_individuals)
 
-    print("")
     print("Running forward passes")
 
     library = ParticlePhasing.get_reference_library(haplotype_library, setup = False)
@@ -268,19 +269,102 @@ def run_joint(pedigree, arrays, args):
     # Set decision rule
     set_decision_rule(pedigree, args)
 
+    # original_hd_individuals = [ind for ind in pop_individuals if np.mean(ind.genotypes != 9) > args.hd_threshold]
+    for ind in pedigree:
+        if np.mean(ind.genotypes != 9) > args.hd_threshold :
+            ind.original_hd = True
+        else:
+            ind.original_hd = False
+
     final_cutoff = args.final_peeling_threshold_for_phasing
     
     hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation = Heuristic_Peeling.run_integrated_peeling(pedigree, args, final_cutoff = final_cutoff)
 
+    for ind in hd_individuals:
+        ind.population_imputation_target = True
+
+    pop_individuals = hd_individuals + ld_for_pop_imputation
+
+    for array in arrays:
+        mask_array(array)
+
+    hd_individuals = [ind for ind in pop_individuals if np.mean(ind.genotypes != 9) > args.hd_threshold]
+    ld_for_pop_imputation = [ind for ind in pop_individuals if np.mean(ind.genotypes != 9) <= args.hd_threshold]
+
+
     haplotype_library = create_haplotype_library(hd_individuals, args)
+
+    pedigree.writeGenotypes(args.out + ".phased.genotypes")
 
     ld_individuals = ld_for_pop_imputation + ld_for_ped_imputation
     print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
 
+    # ld_for_pop_imputation += hd_individuals 
+
+    # for array in arrays:
+    #     mask_array(array)
+
+
     run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
+
+    pedigree.writeGenotypes(args.out + ".pop_impute.genotypes")
 
     # Run final round of heuristic peeling, peeling down.
     Heuristic_Peeling.run_integrated_peel_down(pedigree, ld_for_ped_imputation, args, final_cutoff = .1) 
+
+
+def run_joint_pedigree_end(pedigree, arrays, args):
+
+    for ind in pedigree:
+        if np.mean(ind.genotypes != 9) > args.hd_threshold :
+            ind.original_hd = True
+        else:
+            ind.original_hd = False
+
+
+    set_decision_rule(pedigree, args)
+    final_cutoff = args.final_peeling_threshold_for_phasing
+
+    hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation = Heuristic_Peeling.run_integrated_peeling(pedigree, args, final_cutoff = final_cutoff, arrays = arrays)
+
+    haplotype_library = create_haplotype_library(hd_individuals, args)
+
+    pedigree.writeGenotypes(args.out + ".phased.genotypes")
+
+    ld_individuals = ld_for_pop_imputation + ld_for_ped_imputation
+    print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
+    run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
+
+
+    population_targets = [ind for ind in pedigree if ind.population_imputation_target]
+    for ind in population_targets:
+        ind.mask_parents()
+    pedigree.reset_families()
+
+    pedigree.writeGenotypes(args.out + ".pop_impute.genotypes")
+
+    # Run final round of heuristic peeling, peeling down.
+    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = 0.1)
+
+    for ind in population_targets:
+        ind.unmask_parents()
+    pedigree.reset_families()
+
+def mask_array(array):
+
+    mask = array.genotypes
+    print(np.sum(mask))
+    for ind in array.individuals:
+        if not ind.original_hd:
+            mask_genotypes(ind.genotypes, mask)
+            mask_genotypes(ind.haplotypes[0], mask)
+            mask_genotypes(ind.haplotypes[1], mask)
+
+@njit
+def mask_genotypes(mat, mask):
+    for i in range(len(mask)):
+        if mask[i] == 0:
+            mat[i] = 9
 
 
 def set_decision_rule(pedigree, args):
@@ -331,7 +415,11 @@ def main():
         if pop_only:
             run_population_only(pedigree, arrays, args)
         if joint:
-            run_joint(pedigree, arrays, args)
+            if args.joint_type == "integrated":
+                run_joint(pedigree, arrays, args)
+            if args.joint_type == "pedigree":
+                run_joint_pedigree_end(pedigree, arrays, args)
+
 
     # Write out results
     startTime = datetime.datetime.now()

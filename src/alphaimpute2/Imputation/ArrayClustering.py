@@ -80,7 +80,7 @@ class SNP_Array(object):
     @property
     def n_ind(self):
         return len(self.individuals)
-    
+
     def copy(self):
         new_array = SNP_Array()
         new_array.fixed = self.fixed

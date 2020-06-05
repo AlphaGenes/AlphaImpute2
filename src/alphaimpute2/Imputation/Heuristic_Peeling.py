@@ -1,5 +1,5 @@
 import numpy as np
-from numba import jit, float32
+from numba import jit, float32, njit
 import numba.typed
 
 import concurrent.futures
@@ -78,17 +78,20 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
 
 @profile
 @time_func("Integrated Heuristic Peeling")
-def run_integrated_peeling(pedigree, args, final_cutoff = .3):
+def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     
+    pedigree.writeGenotypes(args.out + ".initial.genotypes")
+
+
     # Set up peeling view
     setupHeuristicPeeling(pedigree, args)
 
     # Run peeling cycle. Cutoffs are for genotype probabilities. 
     # Segregation call value is hard-coded to .99
+
     cutoffs = [.99] + [args.cutoff for i in range(args.cycles - 1)]
     runPeelingCycles(pedigree, args, cutoffs)
 
-    # Set to best-guess genotypes -- will refine this later.
     for ind in pedigree:
         ind.set_original_genotypes() # May need to reset individuals
         call_genotypes(ind, final_cutoff, args.error)
@@ -99,14 +102,20 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3):
     # Individuals for population imputation
     # Individuals for pedigree imputation
 
+    if arrays is not None:
+        for array in arrays:
+            mask_array(array)
+
+
     for individual in pedigree:
         individual.get_marker_score(args.chip_threshold) # Set up the marker scores
+
 
     hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > args.hd_threshold]
     ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
 
-    ld_for_pop_imputation = [ind for ind in ld_individuals if ind.target_population_imputation]
-    ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.target_population_imputation]
+    ld_for_pop_imputation = [ind for ind in ld_individuals if ind.population_imputation_target]
+    ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.population_imputation_target]
 
     # Already set for this so don't need to run.
     # for ind in hd_individuals + ld_for_pop_imputation:
@@ -119,8 +128,32 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3):
     for ind in pedigree:
         ind.peeling_view = None
 
+    with open(args.out + ".targets", "w+") as f:
+
+        for individual in pedigree:
+            f.write(f"{individual.idx} {individual.population_imputation_target}\n")
+
+    pedigree.writeGenotypes(args.out + ".peeling.genotypes")
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
+
+
+def mask_array(array):
+
+    mask = array.genotypes
+    print(np.sum(mask))
+    for ind in array.individuals:
+        if not ind.original_hd:
+            mask_genotypes(ind.genotypes, mask)
+            mask_genotypes(ind.haplotypes[0], mask)
+            mask_genotypes(ind.haplotypes[1], mask)
+
+@njit
+def mask_genotypes(mat, mask):
+    for i in range(len(mask)):
+        if mask[i] == 0:
+            mat[i] = 9
+
 
 def run_integrated_peel_down(pedigree, imputation_targets, args, final_cutoff):
     
@@ -136,6 +169,7 @@ def run_integrated_peel_down(pedigree, imputation_targets, args, final_cutoff):
     pedigreePeelDown(pedigree, args, args.cutoff)
 
     # Call genotypes.
+    print(len(imputation_targets), final_cutoff)
     for ind in imputation_targets:
         call_genotypes(ind, final_cutoff, args.error)
 
