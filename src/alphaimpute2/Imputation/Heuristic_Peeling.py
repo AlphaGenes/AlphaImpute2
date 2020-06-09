@@ -12,9 +12,6 @@ from . import Imputation
 from ..tinyhouse import ProbMath
 
 
-# np.core.arrayprint._line_width = 200
-# np.set_printoptions(precision=4, suppress=True, edgeitems=3)
-
 # Boiler plate profiler code to make this play nicely with Kernprofiler
 try:
     profile
@@ -31,7 +28,7 @@ def time_func(text):
         def timer(*args, **kwargs):
             start_time = datetime.datetime.now()
             values = func(*args, **kwargs)
-            print(text, (datetime.datetime.now() - start_time).total_seconds())
+            print(f"{text}: {(datetime.datetime.now() - start_time).total_seconds()} seconds")
             return values
         return timer
 
@@ -53,6 +50,12 @@ def time_func(text):
 # Peel up: 1e-8 error rate when marginalizing across mate genotypes (shouldn't need this with the mate genotype probs?)
 # Peel up: additional 0.001 error rate when going from posterior -> genotype probabilities.
 # Segregation: assumes 1% genotyping error when creating match between individual + parent.
+
+def print_title(text):
+    width = len(text)
+    print("")
+    print(text)
+
 
 
 @profile
@@ -77,12 +80,9 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
 
 
 @profile
-@time_func("Integrated Heuristic Peeling")
+@time_func("Heuristic Peeling")
 def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     
-    pedigree.writeGenotypes(args.out + ".initial.genotypes")
-
-
     # Set up peeling view
     setupHeuristicPeeling(pedigree, args)
 
@@ -128,20 +128,11 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     for ind in pedigree:
         ind.peeling_view = None
 
-    with open(args.out + ".targets", "w+") as f:
-
-        for individual in pedigree:
-            f.write(f"{individual.idx} {individual.population_imputation_target}\n")
-
-    pedigree.writeGenotypes(args.out + ".peeling.genotypes")
-
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
 
 def mask_array(array):
-
     mask = array.genotypes
-    print(np.sum(mask))
     for ind in array.individuals:
         if not ind.original_hd:
             mask_genotypes(ind.genotypes, mask)
@@ -246,7 +237,7 @@ def call_genotypes(ind, final_cutoff, error_rate):
 @time_func("Core peeling cycles")
 def runPeelingCycles(pedigree, args, cutoffs):
     for cycle, genotype_cutoff in enumerate(cutoffs):
-        print("Imputation cycle ", cycle)
+        print_title(f"Imputation cycle {cycle + 1}")
         pedigreePeelDown(pedigree, args, genotype_cutoff)
         pedigreePeelUp(pedigree, args, genotype_cutoff)
 

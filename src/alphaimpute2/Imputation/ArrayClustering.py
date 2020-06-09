@@ -93,7 +93,8 @@ class ArrayContainer():
         self.arrays = []
 
     def __iter__(self):
-        for array in self.arrays:
+        sorted_arrays = sorted(self.arrays, key = lambda array: array.n_markers, reverse = True)
+        for array in sorted_arrays:
             yield array
 
 
@@ -155,13 +156,19 @@ class ArrayContainer():
 
 
     def write_out_arrays(self, file_name):
-        sorted_arrays = sorted(self.arrays, key = lambda array: array.n_markers, reverse = True)
 
         with open(file_name, "w+") as f:
-
-            for i, array in enumerate(sorted_arrays):
+            for i, array in enumerate(self):
                 for individual in array.individuals :
                     f.write(f"{individual.idx} {i}\n")
+
+    def __str__(self):
+        output = ""
+        output += "Array \t N_Ind \t N_Markers"
+        for i, array in enumerate(self):
+            n_markers = array.n_markers
+            output += f"\n{i+1}\t {len(array.individuals)}\t {n_markers}"
+        return output
 
 def cluster_individuals_by_array(individuals, min_frequency) :
 
@@ -174,8 +181,6 @@ def cluster_individuals_by_array(individuals, min_frequency) :
     arrays.fix_and_clear()
 
     assign_individuals_to_array(individuals, arrays, allow_new_arrays = False)
-
-    print_array_list(arrays)
     return arrays
 
 
@@ -242,25 +247,11 @@ def update_arrays(arrays):
     # Remove empty arrays
     arrays.filter(min_individuals = 0)
 
-    print_array_list(arrays)
     return arrays
 
 def create_array_subset(individuals, original_arrays, min_markers = 0, min_individuals = 0):
     new_arrays = original_arrays.copy()
     assign_individuals_to_array(individuals, new_arrays, allow_new_arrays = False)
     new_arrays.filter(min_individuals = min_individuals, min_markers = min_markers)
-
-    print_array_list(new_arrays)
     return new_arrays
 
-
-
-def print_array_list(arrays):
-    print("")
-    print("Array \t N_Ind \t N_Markers")
-
-    sorted_arrays = sorted(arrays, key = lambda array: array.n_markers, reverse = True)
-
-    for i, array in enumerate(sorted_arrays):
-        n_markers = array.n_markers
-        print(i, "\t", len(array.individuals), "\t", n_markers)

@@ -11,6 +11,7 @@ from itertools import repeat
 
 from . import BurrowsWheelerLibrary
 from . import PhasingObjects
+from . import ParticlePhasing
 
 from ..tinyhouse.Utils import time_func
 from ..tinyhouse import InputOutput
@@ -21,7 +22,49 @@ except:
     def profile(x): 
         return x
 
-@time_func("Runing imputation")
+
+
+def setup_reverse_individuals(individuals):
+
+    rev_individuals = [ind.reverse_individual() for ind in individuals]
+    # Run reverse pass
+    for ind in rev_individuals:
+        ind.setPhasingView()
+
+    return rev_individuals
+
+def integrate_reverse_individuals(individuals):
+
+    for ind in individuals:
+        ind.add_backward_info()
+        ind.clear_reverse_view()
+        ind.setPhasingView()
+
+
+
+def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
+
+    marker_density = np.floor(np.mean([np.sum(ind.genotypes != 9) for ind in ld_individuals]))
+
+
+    flipped_dict = dict()
+    reversed_ld = setup_reverse_individuals(ld_individuals)
+
+    jit_individuals = List([ind.phasing_view for ind in reversed_ld])
+
+    print("Number of individuals:", len(ld_individuals))
+    print(f"Number of markers: {len(get_non_missing_loci(jit_individuals, 0.9))}")
+
+    library = ParticlePhasing.get_reference_library(haplotype_library, setup = False, reverse = True)
+    impute_individuals_with_bw_library(reversed_ld, library, n_samples = args.n_imputation_particles)
+
+    integrate_reverse_individuals(ld_individuals)
+
+    library = ParticlePhasing.get_reference_library(haplotype_library, setup = False)
+    impute_individuals_with_bw_library(ld_individuals, library, n_samples = args.n_imputation_particles)
+
+
+@time_func("Imputation")
 def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples):
     
     # fill in genotype probabilities.
@@ -39,7 +82,6 @@ def impute_individuals_with_bw_library(individuals, haplotype_library, n_samples
 
     temp_run_impute(jit_individuals, haplotype_library, n_samples)
 
-@time_func("Core Imputation")
 def temp_run_impute(jit_individuals, haplotype_library, n_samples):
 
     chunksize = 10
