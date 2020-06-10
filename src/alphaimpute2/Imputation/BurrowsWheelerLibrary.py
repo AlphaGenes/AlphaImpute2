@@ -55,16 +55,17 @@ class BurrowsWheelerLibrary():
             removeMissingValues(hap)
 
 
-    def setup_library(self, loci = None):
+    def setup_library(self, loci = None, create_reverse_library = False, create_a = False):
         self.removeMissingValues()
-        hap_array = np.array(self.haplotypes)
+        self.haplotypes = np.array(self.haplotypes)
         if loci is not None:
-            bw_loci = loci
+            bw_loci = np.array(loci, dtype = np.int64)
+            sub_library = self.haplotypes[:,bw_loci]
         else:
-            bw_loci = list(range(hap_array.shape[1]))
-        
-        bw_loci = np.array(bw_loci, dtype = np.int64)
-        self.library = jit_BurrowsWheelerLibrary(hap_array[:,bw_loci], hap_array, bw_loci)
+            bw_loci = np.array(range(self.haplotypes.shape[1]), dtype = np.int64)
+            sub_library = self.haplotypes
+
+        self.library = jit_BurrowsWheelerLibrary(sub_library, self.haplotypes, bw_loci, create_reverse_library, create_a)
 
         self.library_created = True
 
@@ -89,7 +90,6 @@ def removeMissingValues(hap):
 
 jit_BurrowsWheelerLibrary_spec = OrderedDict()
 jit_BurrowsWheelerLibrary_spec['a'] = int64[:,:]
-jit_BurrowsWheelerLibrary_spec['d'] = int64[:,:]
 jit_BurrowsWheelerLibrary_spec['reverse_library'] = int64[:,:]
 jit_BurrowsWheelerLibrary_spec['zeroOccNext'] = int64[:,:]
 jit_BurrowsWheelerLibrary_spec['nZeros'] = int64[:]
@@ -104,30 +104,29 @@ jit_BurrowsWheelerLibrary_spec['loci'] = int64[:]
 
 @jitclass(jit_BurrowsWheelerLibrary_spec)
 class jit_BurrowsWheelerLibrary():
-    def __init__(self, haps, full_haps, loci):
+    def __init__(self, haps, full_haps, loci, create_reverse_library, create_a):
         self.full_haps = full_haps
         self.loci = loci
         self.full_nLoci = full_haps.shape[1]
-        self.a, self.d, self.nZeros, self.zeroOccNext, self.haps = createBWLibrary(haps)
+        self.a, self.reverse_library, self.nZeros, self.zeroOccNext, self.haps = createBWLibrary(haps, create_reverse_library, create_a)
         self.nHaps, self.nLoci = self.haps.shape
 
-        self.reverse_library = np.full((1, 1), 0, dtype = np.int64)
-        self.set_reverse_library()
+        # self.set_reverse_library()
 
     def get_true_index(self, index):
         return self.loci[index]
 
-    def getValues(self):
-        return (self.a, self.d, self.nZeros, self.zeroOccNext, self.haps)
+    # def getValues(self):
+    #     return (self.a, self.d, self.nZeros, self.zeroOccNext, self.haps)
 
-    def set_reverse_library(self):
+    # def set_reverse_library(self):
 
-        self.reverse_library = np.full(self.a.shape, 0, dtype = np.int64)
+    #     self.reverse_library = np.full(self.a.shape, 0, dtype = np.int64)
 
-        for i in range(self.nLoci):
-            for j in range(self.nHaps):
+    #     for i in range(self.nLoci):
+    #         for j in range(self.nHaps):
 
-                self.reverse_library[self.a[j, i], i] = j
+    #             self.reverse_library[self.a[j, i], i] = j
 
 
     def update_state(self, state, index):
@@ -254,7 +253,7 @@ def update_state(state, index, nZeros, zeroOccNext):
 
 
 @njit
-def createBWLibrary(haps):
+def createBWLibrary(haps, create_reverse_library, create_a):
     
     #Definitions.
     # haps : a list of haplotypes
@@ -263,10 +262,21 @@ def createBWLibrary(haps):
 
     nHaps = haps.shape[0]
     nLoci = haps.shape[1]
-    a = np.full(haps.shape, 0, dtype = np.int64)
-    d = np.full(haps.shape, 0, dtype = np.int64)
+    a = np.full(nHaps, 0, dtype = np.int64)
 
     nZerosArray = np.full(nLoci, 0, dtype = np.int64)
+    zeroOccNext = np.full(haps.shape, 0, dtype = np.int64)
+
+    if create_reverse_library:
+        reverse_library = np.full(haps.shape, 0, dtype = np.int64)
+    else:
+        reverse_library = np.full((1, 1), 0, dtype = np.int64)
+
+    if create_a:
+        a_output = np.full(haps.shape, 0, dtype = np.int64)
+    else:
+        a_output = np.full((1, 1), 0, dtype = np.int64)
+
 
     zeros = np.full(nHaps, 0, dtype = np.int64)
     ones = np.full(nHaps, 0, dtype = np.int64)
@@ -281,13 +291,18 @@ def createBWLibrary(haps):
             ones[nOnes] = j    
             nOnes += 1
     if nZeros > 0:
-        a[0:nZeros, 0] = zeros[0:nZeros]
+        a[0:nZeros] = zeros[0:nZeros]
 
     if nOnes > 0:
-        a[nZeros:nHaps, 0] = ones[0:nOnes]
+        a[nZeros:nHaps] = ones[0:nOnes]
 
     nZerosArray[0] = nZeros
-    zeroOccNext = np.full(haps.shape, 0, dtype = np.int64)
+
+    if create_reverse_library:
+        for j in range(nHaps):
+            reverse_library[a[j], 0] = j
+    if create_a:
+        a_output[:,0] = a
 
     for i in range(1, nLoci) :
         
@@ -299,24 +314,30 @@ def createBWLibrary(haps):
         z_occ_count = 0
         for j in range(nHaps) :
 
-            if haps[a[j, i-1], i] == 0:
-                zeros[nZeros] = a[j, i-1]
+            if haps[a[j], i] == 0:
+                zeros[nZeros] = a[j]
                 nZeros += 1
                 z_occ_count += 1
             else:
-                ones[nOnes] = a[j, i-1]
+                ones[nOnes] = a[j]
                 nOnes += 1
 
             # Updating zeroOccNext in a single pass.
             zeroOccNext[j, i-1] = z_occ_count
 
         if nZeros > 0:
-            a[0:nZeros, i] = zeros[0:nZeros]
+            a[0:nZeros] = zeros[0:nZeros]
 
         if nOnes > 0:
-            a[nZeros:nHaps, i] = ones[0:nOnes]
+            a[nZeros:nHaps] = ones[0:nOnes]
         nZerosArray[i] = nZeros
         
+        if create_reverse_library:
+            for j in range(nHaps):
+                reverse_library[a[j], i] = j
+      
+        if create_a:
+            a_output[:,i] = a
 
     # for i in range(0, nLoci-1):
     #     count = 0
@@ -326,7 +347,7 @@ def createBWLibrary(haps):
     #         zeroOccNext[j, i] = count
 
 
-    return a, d, nZerosArray, zeroOccNext, haps
+    return a_output, reverse_library, nZerosArray, zeroOccNext, haps
 
 
 example_bw_library = None

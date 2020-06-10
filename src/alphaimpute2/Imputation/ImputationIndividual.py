@@ -10,6 +10,7 @@ import numba
 from numba import jit, int8, int64, boolean, optional, float32
 from collections import OrderedDict
 import numpy as np
+import hashlib
 from . import Imputation
 
 try:
@@ -38,6 +39,18 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.masked_sire = None
         self.masked_dam = None
 
+        seed = self.get_random_seed()
+
+        if self.idx == "1":
+            print(seed)
+        self.random_generator = np.random.RandomState(seed)
+
+
+    def get_random_seed(self):
+        as_encoded_string = str(self.idx).encode('utf-8')
+        hash_val = hashlib.sha224(as_encoded_string).digest()
+        return int.from_bytes(hash_val, "little") % (2**32)
+ 
     def mask_parents(self):
         self.masked_sire = self.sire
         self.masked_dam = self.dam
@@ -175,7 +188,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
 
     def reverse_individual(self):
-        new_ind = AlphaImputeIndividual(self.idx, self.idn)
+        new_ind = AlphaImputeIndividual(self.idx + "_reverse", self.idn)
         new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
 
         if self.haplotypes is not None:
@@ -198,21 +211,23 @@ class AlphaImputeIndividual(Pedigree.Individual):
     def clear_reverse_view(self):
         self.reverse_view = None
 
+    def clear_phasing_view(self, keep_current_haplotypes = True):
+        self.phasing_view = False
+        self.backward_information = None
+
+        if not keep_current_haplotypes:
+            self.current_haplotypes = None
 
 spec = OrderedDict()
 spec['idn'] = int64
 spec['nLoci'] = int64
 spec['genotypes'] = int8[:]
 
-spec['called_genotypes'] = int8[:]
-
 # Haplotypes and reads are a tuple of int8 and int64.
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
 spec['penetrance'] = float32[:,:]
-
-# spec['forward'] = optional(float32[:,:])
 spec['backward'] = float32[:,:]
 
 spec['own_haplotypes'] = int64[:,:]
@@ -231,12 +246,10 @@ class jit_Phasing_Individual(object):
         self.haplotypes = haplotypes
         self.current_haplotypes = current_haplotypes
         
-        self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+        self.penetrance = np.full((4, 1), 1, dtype = np.float32) 
 
         # self.forward = None
         self.backward = backward 
-
-        self.called_genotypes = np.full(nLoci, 9, dtype = np.int8)
 
         self.own_haplotypes = np.full((0, 0), 0, dtype = np.int64)
         self.has_own_haplotypes = False
@@ -248,6 +261,12 @@ class jit_Phasing_Individual(object):
         self.has_own_haplotypes = True
 
 
+    def setup_penetrance(self):
+        self.penetrance = np.full((4, self.nLoci), 1, dtype = np.float32) 
+        self.setValueFromGenotypes(self.penetrance, 0.01)
+
+    def clear_penetrance(self):
+        self.penetrance = np.full((4, 1), 1, dtype = np.float32) 
 
     def setValueFromGenotypes(self, mat, error_rate):
         nLoci = self.nLoci

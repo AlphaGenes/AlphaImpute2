@@ -139,39 +139,9 @@ def create_haplotype_library(hd_individuals, args):
 
     if not pre_phase_ran :
         cycles = [1] + [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
-        run_phasing(hd_individuals, cycles, args)
+        ParticlePhasing.run_phasing(hd_individuals, cycles, args)
 
     return hd_individuals
-
-
-def run_phasing(individuals, cycles, args):
-    print("")
-    print("Backwards phasing cycles.")
-    rev_individuals = setup_reverse_individuals(individuals)
-    ParticlePhasing.create_library_and_phase(rev_individuals, cycles, args)     
-    integrate_reverse_individuals(individuals)
-
-    print("")
-    print("Forwards phasing cycles")
-    ParticlePhasing.create_library_and_phase(individuals, cycles, args)     
-
-
-
-def setup_reverse_individuals(individuals):
-
-    rev_individuals = [ind.reverse_individual() for ind in individuals]
-    # Run reverse pass
-    for ind in rev_individuals:
-        ind.setPhasingView()
-
-    return rev_individuals
-
-def integrate_reverse_individuals(individuals):
-
-    for ind in individuals:
-        ind.add_backward_info()
-        ind.clear_reverse_view()
-        ind.setPhasingView()
 
 
 def run_population_imputation(ld_individuals, args, haplotype_library, arrays):
@@ -337,6 +307,7 @@ def run_cluster_only(pedigree, args):
 def main():
     InputOutput.print_boilerplate("AlphaImpute2", "v0.0.1")
     args = getArgs()
+    InputOutput.setNumbaSeeds(12345)
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
     
     # Read in genotype data, and prepare individuals for imputation.
