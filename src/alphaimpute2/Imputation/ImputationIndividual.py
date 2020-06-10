@@ -40,9 +40,6 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.masked_dam = None
 
         seed = self.get_random_seed()
-
-        if self.idx == "1":
-            print(seed)
         self.random_generator = np.random.RandomState(seed)
 
 

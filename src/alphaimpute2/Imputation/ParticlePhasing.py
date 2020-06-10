@@ -122,9 +122,6 @@ def get_random_values(individual, library, n_samples):
 
 def phase(individual, haplotype_library, set_haplotypes, imputation, n_samples):
     random_values = get_random_values(individual, haplotype_library.library, n_samples)
-    
-    if individual.idx == "1":
-        print(random_values[0, 1:10])
     individual.phasing_view.setup_penetrance()
     phase_jit(individual.phasing_view, haplotype_library.library, set_haplotypes, imputation, n_samples, random_values)
     individual.phasing_view.clear_penetrance()
