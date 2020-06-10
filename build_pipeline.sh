@@ -22,11 +22,11 @@ fi
  # ( cd docs; make latexpdf )
 
 
-# target=AlphaPeel
-# rm -rf $target
-# mkdir $target
-# cp dist/* $target
+target=AlphaImpute2
+rm -rf $target
+mkdir $target
+cp dist/* $target
 # cp docs/build/latex/AlphaImpute2.pdf $target
-# cp -r example $target
-# zip -r $target.zip $target
+cp -r example $target
+zip -r $target.zip $target
 

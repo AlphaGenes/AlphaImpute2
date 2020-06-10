@@ -1,23 +1,72 @@
-trueGenotypes = as.matrix(read.table("data/trueGenotypes.txt"))
+library(data.table)
+# args = commandArgs(trailingOnly = TRUE)
+# prefix = args[1]
 
-getMarkerCorrelations = function(mat, true) {
-    cors = sapply(1:ncol(true), function(ii){
-        cor(true[,ii], mat[,ii], use = "pair")
+# prefix = "ldCoverage"
+getFile = function(fileName) {
+    mat = as.matrix(fread(fileName))
+    mat = mat[order(mat[,1]),]
+    return(mat)
+}
+
+true = getFile("data/true_genotypes.txt")
+masked = getFile("data/genotypes.txt")
+
+pedigree = getFile("data/pedigree.txt")
+
+pedigree = cbind(pedigree,-1)
+getGeneration = function(index) {
+    if(pedigree[index,2] == 0) return(0)
+    sire = pedigree[index, 2]
+    return(pedigree[pedigree[,1] == sire, 4] + 1)
+}
+
+for(i in 1:nrow(pedigree)) {
+    pedigree[i,4] = getGeneration(i)
+}
+generations = pedigree[,4]
+
+ids = pedigree[,1]
+
+
+stratifyByGeneration = function(true, masked, mat) {
+    vals = lapply(unique(generations), function(gen) {
+        subTrue = true[pedigree[,4] == gen,-1]
+        subMasked = masked[pedigree[,4] == gen,-1]
+        subMasked[subMasked == 9] = NA
+
+        subMat = mat[pedigree[,4] == gen,-1]
+        subMat[subMat == 9] = NA
+
+
+        # Get accuracy/yield for initially missing loci.
+        yield = mean(!is.na(subMat))
+        yieldMissing = mean(is.na(subMasked) & !is.na(subMat))/mean(is.na(subMasked))
+        acc = mean(subMat[is.na(subMasked)] == subTrue[is.na(subMasked)], na.rm=T)
+        return(c(gen, yield, yieldMissing, acc))
     })
-    return(mean(cors, na.rm = T))
+
+    vals = do.call("rbind", vals)
+    colnames(vals) = c("generation", "yield", "yieldMissing", "acc")
+    return(vals)
 }
 
-assessPeeling = function(filePrefix){
-
-    newFile = as.matrix(read.table(paste0("outputs/", filePrefix)))
-
-    print(" ")
-    print(paste("Assessing peeling file:", filePrefix))
-    newAcc = getMarkerCorrelations(newFile[,-1], trueGenotypes[,-1])
-    print(paste("Comparing accuracies: ", round(newAcc, digits=3)))
-
+getSubset = function(mat, ids){
+    mat = mat[mat[,1] %in% ids,]
+    mat = mat[order(mat[,1]),]
+    return(mat)
 }
 
-assessPeeling("multilocus.dosages")
-assessPeeling("hybrid.dosages")
+
+getAccuracy= function(fileName){
+    mat = getFile(fileName)
+    mat = getSubset(mat, ids)
+    print(fileName)
+    print(stratifyByGeneration(true, masked, mat))
+}
+
+
+getAccuracy("outputs/ai2.genotypes")
+getAccuracy("outputs/pop_only.genotypes")
+getAccuracy("outputs/ped_only.genotypes")
 
