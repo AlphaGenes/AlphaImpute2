@@ -166,7 +166,9 @@ def setupHeuristicPeeling(pedigree, args):
     #         ind.peeling_view.setAnterior(founder_anterior.copy())
 
 def call_genotypes(ind, final_cutoff, error_rate):
-
+    #### NOTE: THIS WORKS BUT REQUIRES SETTING THESE IN PEDIGREE "PEEL DOWN" ORDER
+    # IF NOTE, PARENT'S ANTERIOR VALUES MAY NOT BE CORRECTLY SET.
+    # FIX: RUN FINAL ROUND OF PEEL DOWN AT THE END.
     if ind.peeling_view.has_offspring:
         if ind.sire is not None and ind.dam is not None:
             anterior = getAnterior(ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view)

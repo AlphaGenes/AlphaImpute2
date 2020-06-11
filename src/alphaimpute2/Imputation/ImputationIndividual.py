@@ -583,7 +583,7 @@ class jit_Peeling_Individual(object):
         
         if usePosterior and self.has_offspring:
             if self.posterior_open:
-                print("USING POSTERIOR!", self.currentState)
+                print("USING POSTERIOR!", self.currentState, self.currentCutoff, self.idn, self.has_parents)
             finalGenotypes *= self.posterior
             
 
