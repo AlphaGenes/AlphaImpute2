@@ -19,14 +19,14 @@ if [ $command == "install" ] ; then
 fi
 
 #Compile manual
- # ( cd docs; make latexpdf )
+ ( cd docs; make latexpdf )
 
 
 target=AlphaImpute2
 rm -rf $target
 mkdir $target
 cp dist/* $target
-# cp docs/build/latex/AlphaImpute2.pdf $target
+cp docs/build/latex/AlphaImpute2.pdf $target
 cp -r example $target
 zip -r $target.zip $target
 
