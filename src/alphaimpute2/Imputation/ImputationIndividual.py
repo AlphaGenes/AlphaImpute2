@@ -12,6 +12,7 @@ from collections import OrderedDict
 import numpy as np
 import hashlib
 from . import Imputation
+import math
 
 try:
     profile
@@ -167,7 +168,9 @@ class AlphaImputeIndividual(Pedigree.Individual):
         else:
             self.has_offspring = False
 
-        self.peeling_view = jit_Peeling_Individual(self.idn, self.genotypes, self.haplotypes, self.has_offspring, nLoci)
+        has_parents = (self.sire is not None) or (self.dam is not None)
+
+        self.peeling_view = jit_Peeling_Individual(self.idn, self.genotypes, self.haplotypes, self.has_offspring, has_parents, nLoci)
 
     def setPhasingView(self):
         # Set the 
@@ -325,20 +328,29 @@ def get_example_phasing_individual():
     return example_phasing_individual
 
 spec = OrderedDict()
+
 spec['idn'] = int64
 spec['nLoci'] = int64
 spec['genotypes'] = int8[:]
+spec['original_genotypes'] = int8[:]
 
 spec['has_offspring'] = boolean
+spec['has_parents'] = boolean
 spec['imputation_target'] = boolean
+spec['posterior_open'] = boolean
+spec['anterior_availible'] = boolean
+
+
 # Haplotypes and reads are a tuple of int8 and int64.
 spec['haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
+spec['original_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np.array([0], dtype = np.int8)))
 
 spec['segregation'] = numba.typeof((np.array([0, 1], dtype = np.float32), np.array([0], dtype = np.float32)))
+
 spec['newPosterior'] = optional(numba.typeof([np.full((4, 100), 0, dtype = np.float32)]))
 
 spec['anterior'] = float32[:,:]
-spec['penetrance'] = float32[:,:]
+# spec['penetrance'] = float32[:,:]
 spec['posterior'] = float32[:,:]
 spec['genotypeProbabilities'] = float32[:,:]
 
@@ -352,7 +364,7 @@ class jit_Peeling_Individual(object):
     '''
     This class holds a lot of arrays for peeling individuals and a handful of functions to translate genotypes => probabilities and back again.
     '''
-    def __init__(self, idn, genotypes, haplotypes, has_offspring, nLoci):
+    def __init__(self, idn, genotypes, haplotypes, has_offspring, has_parents, nLoci):
         self.nLoci = nLoci
         self.idn = idn
         self.genotypes = genotypes
@@ -364,21 +376,30 @@ class jit_Peeling_Individual(object):
         self.segregation = (np.full(nLoci, .5, dtype = np.float32), np.full(nLoci, .5, dtype = np.float32))
 
         # Create the posterior terms.
-        # self.has_offspring = has_offspring
-        self.has_offspring = True
+        self.has_offspring = has_offspring
+        self.has_parents = has_parents
+
         if self.has_offspring:
+            self.original_genotypes = self.genotypes.copy()
+            self.original_haplotypes = (self.haplotypes[0].copy(), self.haplotypes[1].copy())
+            self.anterior_availible = False
+            self.posterior_open = False
             self.posterior = np.full((4, nLoci), 1, dtype = np.float32)
-            self.anterior = np.full((4, nLoci), 1, dtype = np.float32) 
-            self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+            self.anterior = np.full((0, 0), 1, dtype = np.float32) 
+
+            # self.anterior = np.full((4, nLoci), 1, dtype = np.float32) 
+            # self.penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
             self.genotypeProbabilities = np.full((4, nLoci), 1, dtype = np.float32)
 
         else:
-            self.fill_in_haplotypes()
+            self.original_genotypes = self.genotypes
+            self.original_haplotypes = self.haplotypes
 
             self.posterior = np.full((0, 0), 1, dtype = np.float32)
             self.anterior = np.full((0, 0), 1, dtype = np.float32) 
-            self.penetrance = np.full((0, 0), 1, dtype = np.float32) 
+            # self.penetrance = np.full((0, 0), 1, dtype = np.float32) 
             self.genotypeProbabilities = np.full((0, 0), 1, dtype = np.float32)
+
 
         self.newPosterior = None
 
@@ -397,30 +418,30 @@ class jit_Peeling_Individual(object):
         if not self.has_offspring:
             return False
         
-        if self.currentState != state or self.currentCutoff != cutoff:
+        if self.currentState != state or abs(self.currentCutoff - cutoff) > 0.0001:
             self.currentState = state
             self.currentCutoff = cutoff
             return True
         else:
             return False
 
-    def fill_in_haplotypes(self):
-        for i in range(self.nLoci):
-            if self.genotypes[i] == 0:
+    # def fill_in_haplotypes(self):
+    #     for i in range(self.nLoci):
+    #         if self.genotypes[i] == 0:
                 
-                if self.haplotypes[0][i] == 9:
-                    self.haplotypes[0][i] = 0
+    #             if self.haplotypes[0][i] == 9:
+    #                 self.haplotypes[0][i] = 0
                 
-                if self.haplotypes[1][i] == 9:
-                    self.haplotypes[1][i] = 0
+    #             if self.haplotypes[1][i] == 9:
+    #                 self.haplotypes[1][i] = 0
 
-            if self.genotypes[i] == 2:
+    #         if self.genotypes[i] == 2:
                 
-                if self.haplotypes[0][i] == 9:
-                    self.haplotypes[0][i] = 1
+    #             if self.haplotypes[0][i] == 9:
+    #                 self.haplotypes[0][i] = 1
                 
-                if self.haplotypes[1][i] == 9:
-                    self.haplotypes[1][i] = 1
+    #             if self.haplotypes[1][i] == 9:
+    #                 self.haplotypes[1][i] = 1
 
     def setGenotypesAll(self, cutoff = 0.99):
         if self.check_and_set_state(0, cutoff):
@@ -447,16 +468,27 @@ class jit_Peeling_Individual(object):
             # If the current state is not one of those two, we will re-calculate the genotype probabilities when we set the individual to one of those states.
             self.currentState = -1
 
-    def setPosterior(self):
+        self.anterior_availible = True
+
+
+    def clearAnterior(self):
+        self.anterior = np.full((0, 0), 1, dtype = np.float32) 
+        self.anterior_availible = False
+
+    def clearPosterior(self):
+        if self.has_offspring:
+            self.posterior[:,:] = 0
+            self.posterior_open = True
+
+
+    def combinePosterior(self):
         if self.has_offspring and self.newPosterior is not None:
             # Take all the posterior values and add them up.
-            sumPosterior = np.full(self.posterior.shape, 0, dtype = np.float32)
-
+            if not self.posterior_open:
+                print("Trying to add to posterior, but it is not open")
             nPost = len(self.newPosterior)
             for i in range(nPost):
-                sumPosterior += self.newPosterior[i]
-            self.posterior = self.set_posterior_from_scores(sumPosterior)
-            self.currentState = -1
+                self.posterior += self.newPosterior[i]
             self.newPosterior = None
 
     def addPosterior(self, newValues, idn):
@@ -464,17 +496,35 @@ class jit_Peeling_Individual(object):
             self.newPosterior = [newValues]
         else:
             self.newPosterior.append(newValues)
+    
+    def setPosterior(self):
+        if self.has_offspring:
+            self.posterior = self.set_posterior_from_scores(self.posterior)
+            self.currentState = -1
+            self.posterior_open = False
+
+    def set_posterior_from_scores(self, scores):
+        nLoci = scores.shape[1]
+        posterior = np.full((4, nLoci), 1, dtype = np.float32)
+        e = 0.001
+        # Maybe could do below in a cleaner fasion, but this is nice and explicit.
+        for i in range(nLoci) :
+            vals = exp_1D_norm(scores[:,i])
+            
+            for j in range(4):
+                posterior[j, i] = vals[j]*(1-e) + e/4           
+        return posterior
 
 
-    def setupProbabilityValues(self, error_rate):
-        if self.has_offspring: # Only need to do this for founders.
-            self.setValueFromGenotypes(self.penetrance, error_rate) 
+    # def setupProbabilityValues(self, error_rate):
+    #     if self.has_offspring: # Only need to do this for founders.
+    #         self.setValueFromGenotypes(self.penetrance, error_rate) 
 
     def setValueFromGenotypes(self, mat, error_rate):
         nLoci = self.nLoci
         mat[:,:] = 1
         for i in range(nLoci):
-            g = self.genotypes[i]
+            g = self.original_genotypes[i]
             
             if g == 0:
                 mat[0,i] = 1
@@ -494,19 +544,19 @@ class jit_Peeling_Individual(object):
                 mat[3,i] = 1
 
             # Handle haplotypes by rulling out genotype states
-            if self.haplotypes[0][i] == 0:
+            if self.original_haplotypes[0][i] == 0:
                 mat[2,i] = 0
                 mat[3,i] = 0
 
-            if self.haplotypes[0][i] == 1:
+            if self.original_haplotypes[0][i] == 1:
                 mat[0,i] = 0
                 mat[1,i] = 0
 
-            if self.haplotypes[1][i] == 0:
+            if self.original_haplotypes[1][i] == 0:
                 mat[1,i] = 0
                 mat[3,i] = 0
 
-            if self.haplotypes[1][i] == 1:
+            if self.original_haplotypes[1][i] == 1:
                 mat[0,i] = 0
                 mat[2,i] = 0
 
@@ -525,14 +575,22 @@ class jit_Peeling_Individual(object):
 
         self.genotypeProbabilities[:,:] = 1
         finalGenotypes = self.genotypeProbabilities
-        if useAnterior:
+        if useAnterior and self.has_parents:
+            if not self.anterior_availible:
+                print("USING ANTERIOR!", self.currentState)
+
             finalGenotypes *= self.anterior
         
         if usePosterior and self.has_offspring:
+            if self.posterior_open:
+                print("USING POSTERIOR!", self.currentState)
             finalGenotypes *= self.posterior
-        
+            
+
         if usePenetrance:
-            finalGenotypes *= self.penetrance
+            penetrance = np.full((4, nLoci), 1, dtype = np.float32) 
+            self.setValueFromGenotypes(penetrance, 0.01)
+            finalGenotypes *= penetrance
 
         self.setGenotypesFromGenotypeProbabilities(finalGenotypes, cutoff)
 
@@ -584,17 +642,8 @@ class jit_Peeling_Individual(object):
             else:
                 self.haplotypes[1][i] = 9
 
-    def set_posterior_from_scores(self, scores):
-        nLoci = scores.shape[1]
-        posterior = np.full((4, nLoci), 1, dtype = np.float32)
-        e = 0.001
-        # Maybe could do below in a cleaner fasion, but this is nice and explicit.
-        for i in range(nLoci) :
-            vals = exp_1D_norm(scores[:,i])
-            
-            for j in range(4):
-                posterior[j, i] = vals[j]*(1-e) + e/4           
-        return posterior
+
+
 
 
 @jit(nopython=True, nogil = True)

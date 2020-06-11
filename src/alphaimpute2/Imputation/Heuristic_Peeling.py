@@ -123,7 +123,8 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     #     call_genotypes(ind, final_cutoff, args.error)
 
     for ind in ld_for_ped_imputation:
-        call_genotypes_posterior(ind, final_cutoff, args.error)
+        #### THIS NEEDS TO BE FIXED!!!!
+        ind.restore_original_genotypes()
 
     # Clear peeling view
     for ind in pedigree:
@@ -147,62 +148,12 @@ def mask_genotypes(mat, mask):
             mat[i] = 9
 
 
-def run_integrated_peel_down(pedigree, imputation_targets, args, final_cutoff):
-    
-    setupHeuristicPeeling(pedigree, args)
-
-    # set targets of imputation
-    for ind in pedigree:
-        ind.peeling_view.imputation_target = False
-
-    for ind in imputation_targets:
-        ind.peeling_view.imputation_target = True
-
-    pedigreePeelDown(pedigree, args, args.cutoff)
-
-    # Call genotypes.
-    print(len(imputation_targets), final_cutoff)
-    for ind in imputation_targets:
-        call_genotypes(ind, final_cutoff, args.error)
-
-    for ind in pedigree:
-        ind.peeling_view = None
-
-@time_func("Peel down")
-@profile
-def pedigreePeelDown(pedigree, args, cutoff):
-    # This function peels down a pedigree; i.e. it finds which regions an individual inherited from their parents, and then fills in the individual's anterior term using that information.
-    # To do this peeling, individual's genotypes should be set to poster+penetrance; parent's genotypes should be set to All.
-    # Since parents may be shared across families, we set the parents seperately from the rest of the family. 
-    # We then set the child genotypes, calculate the segregation estimates, and calculate the anterior term on a family by family basis (set_segregation_peel_down).
-
-    for generation in pedigree.generations:
-        for parent in generation.parents:
-            parent.peeling_view.setGenotypesAll(cutoff)
-
-        if args.maxthreads <= 1:
-            for family in generation.families:
-                set_segregation_peel_down(family, cutoff)
-        else:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
-                executor.map(set_segregation_peel_down, generation.families, repeat(cutoff))
-
-
-def call_genotypes_posterior(ind, final_cutoff, error_rate):
-
-    if ind.peeling_view.has_offspring:
-        ind.peeling_view.setGenotypesPosterior(final_cutoff)
-
-    else:
-        ind.restore_original_genotypes()
-
-
 def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and penetrance value for Heuristic peeling.
 
     for ind in pedigree:
         ind.setPeelingView()
-        ind.peeling_view.setupProbabilityValues(args.error)
+        # ind.peeling_view.setupProbabilityValues(args.error)
 
     # Set anterior values for founders. 
     # Although the maf will change as more individuals are imputed, we're just going to do this once.
@@ -217,7 +168,13 @@ def setupHeuristicPeeling(pedigree, args):
 def call_genotypes(ind, final_cutoff, error_rate):
 
     if ind.peeling_view.has_offspring:
-        ind.peeling_view.setGenotypesAll(final_cutoff)
+        if ind.sire is not None and ind.dam is not None:
+            anterior = getAnterior(ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view)
+            ind.peeling_view.setAnterior(anterior)
+            ind.peeling_view.setGenotypesAll(final_cutoff)
+            ind.peeling_view.clearAnterior()
+        else:
+            ind.peeling_view.setGenotypesAll(final_cutoff)
 
     else:
         nLoci = len(ind.genotypes)
@@ -271,6 +228,10 @@ def pedigreePeelUp(pedigree, args, cutoff):
     # Since parents may be shared across families, we set the parents seperately. 
     # We then set the child genotypes, calculate the segregation estimates, and calculate the parent's posterior term on a family by family basis (heuristicPeelUp_family).
 
+    for ind in pedigree:
+        if ind.peeling_view.has_offspring :
+            ind.peeling_view.clearPosterior()
+
     for generation in reversed(pedigree.generations):
         for parent in generation.parents:
             parent.peeling_view.setGenotypesAll(cutoff)
@@ -288,6 +249,8 @@ def pedigreePeelUp(pedigree, args, cutoff):
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
                 executor.map(heuristicPeelUp_family, generation.families, repeat(cutoff))
 
+        for parent in generation.parents:
+            parent.peeling_view.combinePosterior()
 
 
 
@@ -327,8 +290,8 @@ def set_segregation_peel_down_jit(sire, dam, offspring, cutoff):
         if offspring[i].has_offspring: # Otherwise we don't really care about the offspring's values.
             newAnterior = getAnterior(offspring[i], sire, dam)
             offspring[i].setAnterior(newAnterior)
-
-
+            offspring[i].setGenotypesAll(cutoff)
+            offspring[i].clearAnterior()
 
 @jit(nopython=True, nogil = True)
 def getAnterior(ind, sire, dam):
