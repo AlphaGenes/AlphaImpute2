@@ -8,6 +8,7 @@ from .Imputation import ImputationIndividual
 from .Imputation import Imputation
 from .Imputation import ArrayClustering
 
+from .tinyhouse.Utils import time_func
 
 import datetime
 import argparse
@@ -20,39 +21,10 @@ except:
     def profile(x): 
         return x
 
-
-    #####################################
-    #####################################
-    ####                            #####
-    #### Core tinyImpute Imputation #####
-    ####                            #####
-    #####################################
-    #####################################
-
-
 def setupImputation(pedigree):
     for ind in pedigree :
         ind.setupIndividual()
         Imputation.ind_align(ind)
-
-
-
-    #####################################
-    #####################################
-    ####                            #####
-    ####    Imputation Programs     #####
-    ####                            #####
-    #####################################
-    #####################################
-
-
-    #####################################
-    #####################################
-    ####                            #####
-    ####    Imputation              #####
-    ####                            #####
-    #####################################
-    #####################################
 
 
 
@@ -65,7 +37,7 @@ def getArgs() :
     probability_parser = parser.add_argument_group("Probability options")
     InputOutput.add_arguments_from_dictionary(probability_parser, InputOutput.get_probability_options(), ["error"])
 
-    core_impute_parser = parser.add_argument_group("Impute options")
+    core_impute_parser = parser.add_argument_group("Imputation options")
     core_impute_parser.add_argument('-maxthreads',default=1, required=False, type=int, help='Number of threads to use. Default: 1.')
     core_impute_parser.add_argument('-binaryoutput', action='store_true', required=False, help='Flag to write out the genotypes as a binary plink output.')
     core_impute_parser.add_argument('-phase_output', action='store_true', required=False, help='Flag to write out the phase information.')
@@ -303,19 +275,31 @@ def run_cluster_only(pedigree, args):
     print(arrays)
     arrays.write_out_arrays(args.out + ".arrays")
 
+@time_func("Read in")
+def read_in_data(pedigree, args):
+    InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
+
+
+@time_func("Write out")
+def write_out_data(pedigree, args):
+    print_title("Writing Out Results")
+
+    if args.binaryoutput :
+        InputOutput.writeOutGenotypesPlink(pedigree, args.out)
+    else:
+        pedigree.writeGenotypes(args.out + ".genotypes")
+        if args.phase_output:
+            pedigree.writeGenotypes(args.out + ".haplotypes")
+
+
 @profile
 def main():
     InputOutput.print_boilerplate("AlphaImpute2", "v0.0.1")
     args = getArgs()
     InputOutput.setNumbaSeeds(12345)
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
-    
-    # Read in genotype data, and prepare individuals for imputation.
 
-    startTime = datetime.datetime.now()
-    InputOutput.readInPedigreeFromInputs(pedigree, args, genotypes = True, haps = True)
-    print("Read in", datetime.datetime.now() - startTime)
-    
+    read_in_data(pedigree, args)
     setupImputation(pedigree)
 
     # If pedigree imputation. Run initial round of pedigree imputation.
@@ -348,18 +332,7 @@ def main():
 
 
     # Write out results
-    startTime = datetime.datetime.now()
-
-    print_title("Writing Out Results")
-    if args.binaryoutput :
-        InputOutput.writeOutGenotypesPlink(pedigree, args.out)
-    else:
-        pedigree.writeGenotypes(args.out + ".genotypes")
-        if args.phase_output:
-            pedigree.writeGenotypes(args.out + ".haplotypes")
-
-
-    print("Writeout", datetime.datetime.now() - startTime); startTime = datetime.datetime.now()
+    write_out_data(pedigree, args)
 
 def print_title(text, center = True):
     print("")

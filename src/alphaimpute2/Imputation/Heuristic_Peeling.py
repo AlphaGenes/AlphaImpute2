@@ -10,6 +10,7 @@ import datetime
 from . import Imputation
 
 from ..tinyhouse import ProbMath
+from ..tinyhouse.Utils import time_func
 
 
 # Boiler plate profiler code to make this play nicely with Kernprofiler
@@ -21,18 +22,18 @@ except:
 
 # Decorator to add in timings with custom text.
 # For more reading see, maybe https://stackoverflow.com/questions/5929107/decorators-with-parameters
-def time_func(text):
-    # This creates a decorator with "text" set to "text"
-    def timer_dec(func):
-        # This is the returned, modified, function
-        def timer(*args, **kwargs):
-            start_time = datetime.datetime.now()
-            values = func(*args, **kwargs)
-            print(f"{text}: {(datetime.datetime.now() - start_time).total_seconds()} seconds")
-            return values
-        return timer
+# def time_func(text):
+#     # This creates a decorator with "text" set to "text"
+#     def timer_dec(func):
+#         # This is the returned, modified, function
+#         def timer(*args, **kwargs):
+#             start_time = datetime.datetime.now()
+#             values = func(*args, **kwargs)
+#             print(f"{text}: {(datetime.datetime.now() - start_time).total_seconds()} seconds")
+#             return values
+#         return timer
 
-    return timer_dec
+#     return timer_dec
 
 
 # Overall pipeline looks something like:
