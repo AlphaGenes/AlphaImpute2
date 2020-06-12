@@ -68,6 +68,8 @@ def getArgs() :
     integrated_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.9, required=False, type=float, help='Genotype calling threshold for first round of peeling before phasing. This value should be conservative.. Default: 0.9.')
     integrated_parser.add_argument('-integrated_decision_rule',default="individual", required=False, type=str, help='Decision rule to use when determining whether to use population or pedigree imputation. Options: individual, balanced, parents. Default: individual')
     integrated_parser.add_argument('-joint_type',default="pedigree", required=False, type=str, help='Decision rule to use when determining which joint option to use. Options: integrated, pedigree. Default: pedigree')
+    integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help='Flag to use pedigree-phased HD individuals as the haplotype reference library.')
+    integrated_parser.add_argument('-defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
 
 
     # prephase_parser = parser.add_argument_group("Prephase options")
@@ -205,7 +207,11 @@ def run_joint_pedigree_end(pedigree, arrays, args):
     print(f"Number of phasing cycles: {args.n_phasing_cycles}")
     print(f"Number of phasing particles: {args.n_phasing_particles}")
 
-    haplotype_library = create_haplotype_library(hd_individuals, args)
+    if not args.lazy_phasing:
+        haplotype_library = create_haplotype_library(hd_individuals, args)
+
+    else:
+        haplotype_library = hd_individuals
 
     ld_individuals = ld_for_pop_imputation + ld_for_ped_imputation
     print_title("Imputation")
@@ -251,14 +257,14 @@ def mask_genotypes(mat, mask):
 
 def set_decision_rule(pedigree, args):
     for ind in pedigree:
-        if args.integrated_decision_rule == "individual":
+        if not args.defer_parents:
             ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_individual
         
-        if args.integrated_decision_rule == "parents":
+        if args.defer_parents:
             ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents
         
-        if args.integrated_decision_rule == "balanced":
-            ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_balanced
+        # if args.integrated_decision_rule == "balanced":
+        #     ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_balanced
 
 def run_pedigree_only(pedigree, args):
     final_cutoff = args.final_peeling_threshold
@@ -292,7 +298,7 @@ def write_out_data(pedigree, args):
             pedigree.writeGenotypes(args.out + ".haplotypes")
 
 
-@profile
+@time_func("Full Program Run")
 def main():
     InputOutput.print_boilerplate("AlphaImpute2", "v0.0.1")
     args = getArgs()

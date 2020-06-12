@@ -93,9 +93,13 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     cutoffs = [.99] + [args.cutoff for i in range(args.cycles - 1)]
     runPeelingCycles(pedigree, args, cutoffs)
 
+
     for ind in pedigree:
         ind.set_original_genotypes() # May need to reset individuals
         call_genotypes(ind, final_cutoff, args.error)
+
+    if args.lazy_phasing:
+        hd_individuals = extract_haplotype_library(pedigree, args, final_cutoff)
 
 
     # Split the population into three groups:
@@ -111,12 +115,17 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     for individual in pedigree:
         individual.get_marker_score(args.chip_threshold) # Set up the marker scores
 
+    if not args.lazy_phasing:
+        hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > args.hd_threshold]
+        ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
 
-    hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > args.hd_threshold]
-    ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
+        ld_for_pop_imputation = [ind for ind in ld_individuals if ind.population_imputation_target]
+        ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.population_imputation_target]
 
-    ld_for_pop_imputation = [ind for ind in ld_individuals if ind.population_imputation_target]
-    ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.population_imputation_target]
+    else:
+        # hd_individuals already set.
+        ld_for_pop_imputation = [ind for ind in pedigree if ind.population_imputation_target]
+        ld_for_ped_imputation = [ind for ind in pedigree if not ind.population_imputation_target]
 
     # Already set for this so don't need to run.
     # for ind in hd_individuals + ld_for_pop_imputation:
@@ -132,6 +141,29 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
+def extract_haplotype_library(pedigree, args, final_cutoff):
+    hd_individuals = []
+    for ind in pedigree:
+        ind.restore_original_genotypes()
+        ind.set_original_genotypes()
+        call_genotypes(ind, final_cutoff, args.error)
+        
+
+        if ind.percent_phased > 0.95:
+            ind.restore_original_genotypes()
+            ind.set_original_genotypes()
+
+            call_genotypes(ind, 0.1, args.error)
+            clone = ind.copy()
+            clone.current_haplotypes = clone.haplotypes
+            hd_individuals.append(clone)
+            
+            ind.restore_original_genotypes()
+            ind.set_original_genotypes()
+
+            call_genotypes(ind, final_cutoff, args.error)
+
+    return hd_individuals
 
 def mask_array(array):
     mask = array.genotypes
@@ -186,8 +218,10 @@ def call_genotypes(ind, final_cutoff, error_rate):
         
         if ind.sire is not None and ind.dam is not None:
             # Make sure the sire/dam are setup right.
-            ind.sire.peeling_view.setGenotypesAll(final_cutoff)
-            ind.dam.peeling_view.setGenotypesAll(final_cutoff)
+            # ind.sire.peeling_view.setGenotypesAll(final_cutoff)
+            # ind.dam.peeling_view.setGenotypesAll(final_cutoff)
+            ind.sire.peeling_view.setGenotypesAll(ind.sire.peeling_view.currentCutoff)
+            ind.dam.peeling_view.setGenotypesAll(ind.dam.peeling_view.currentCutoff)
             anterior = getAnterior(ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view)
             penetrance *= anterior # Add the penetrance with the anterior. Normalization will happen within the function.
 

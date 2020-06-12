@@ -44,6 +44,17 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.random_generator = np.random.RandomState(seed)
 
 
+
+    def copy(self):
+
+        new_ind = AlphaImputeIndividual(self.idx + "_copy", -1)
+        new_ind.genotypes = self.genotypes.copy()
+        new_ind.haplotypes = (self.haplotypes[0].copy(), self.haplotypes[1].copy())
+
+        return new_ind
+
+
+
     def get_random_seed(self):
         as_encoded_string = str(self.idx).encode('utf-8')
         hash_val = hashlib.sha224(as_encoded_string).digest()
