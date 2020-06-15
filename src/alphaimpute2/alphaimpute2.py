@@ -115,6 +115,10 @@ def create_haplotype_library(hd_individuals, args):
         cycles = [1] + [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
         ParticlePhasing.run_phasing(hd_individuals, cycles, args)
 
+    for individual in hd_individuals:
+        individual.clear_phasing_view(keep_current_haplotypes = True)
+
+
     return hd_individuals
 
 
