@@ -70,6 +70,7 @@ def getArgs() :
     integrated_parser.add_argument('-joint_type',default="pedigree", required=False, type=str, help='Decision rule to use when determining which joint option to use. Options: integrated, pedigree. Default: pedigree')
     integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help='Flag to use pedigree-phased HD individuals as the haplotype reference library.')
     integrated_parser.add_argument('-defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
+    integrated_parser.add_argument('-diminishing_defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
 
 
     # prephase_parser = parser.add_argument_group("Prephase options")
@@ -266,6 +267,9 @@ def set_decision_rule(pedigree, args):
         
         if args.defer_parents:
             ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents
+        
+        if args.diminishing_defer_parents:
+            ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents_diminish
         
         # if args.integrated_decision_rule == "balanced":
         #     ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_balanced

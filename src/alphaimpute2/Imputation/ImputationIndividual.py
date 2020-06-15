@@ -144,17 +144,39 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
             return ind_score, True
 
-    
-    def marker_score_decision_rule_prioritize_balanced(self, ind_score, sire_score, dam_score, ratio):
-            worst_parent_score = min(sire_score, dam_score)
-            best_parent_score = min(sire_score, dam_score)
+    def marker_score_decision_rule_prioritize_parents_diminish(self, ind_score, sire_score, dam_score, ratio):
+            parent_score = min(sire_score, dam_score)
 
-            # One of the parents is at a higher density, and the other parent is on roughly the same density.
+            if parent_score > 0 and ind_score < 25:
+                return max(ind_score, 0.5*parent_score), False
 
-            if ind_score < ratio*best_parent_score and ind_score*ratio < worst_parent_score:
-                return (sire_score + dam_score)/2, False
+            if parent_score > ratio*ind_score :
+                
+                loss = 0.99
+                if ind_score > 100:
+                    loss = 0.99
+                elif ind_score > 50:
+                    loss = 0.98
+                elif ind_score > 25:
+                    loss = 0.75
+                else:
+                    loss = 0.5
+
+                return max(ind_score, loss*parent_score), False
 
             return ind_score, True
+
+    
+    # def marker_score_decision_rule_prioritize_balanced(self, ind_score, sire_score, dam_score, ratio):
+    #         worst_parent_score = min(sire_score, dam_score)
+    #         best_parent_score = min(sire_score, dam_score)
+
+    #         # One of the parents is at a higher density, and the other parent is on roughly the same density.
+
+    #         if ind_score < ratio*best_parent_score and ind_score*ratio < worst_parent_score:
+    #             return (sire_score + dam_score)/2, False
+
+    #         return ind_score, True
 
 
 
