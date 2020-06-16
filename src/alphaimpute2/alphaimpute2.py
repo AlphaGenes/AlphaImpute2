@@ -66,11 +66,11 @@ def getArgs() :
     integrated_parser = parser.add_argument_group("Joint imputation options") 
     integrated_parser.add_argument('-chip_threshold',default=0.95, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.95')
     integrated_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.9, required=False, type=float, help='Genotype calling threshold for first round of peeling before phasing. This value should be conservative.. Default: 0.9.')
-    integrated_parser.add_argument('-integrated_decision_rule',default="individual", required=False, type=str, help='Decision rule to use when determining whether to use population or pedigree imputation. Options: individual, balanced, parents. Default: individual')
-    integrated_parser.add_argument('-joint_type',default="pedigree", required=False, type=str, help='Decision rule to use when determining which joint option to use. Options: integrated, pedigree. Default: pedigree')
-    integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help='Flag to use pedigree-phased HD individuals as the haplotype reference library.')
-    integrated_parser.add_argument('-defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
-    integrated_parser.add_argument('-diminishing_defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
+    # integrated_parser.add_argument('-integrated_decision_rule',default="individual", required=False, type=str, help='Decision rule to use when determining whether to use population or pedigree imputation. Options: individual, balanced, parents. Default: individual')
+    # integrated_parser.add_argument('-joint_type',default="pedigree", required=False, type=str, help='Decision rule to use when determining which joint option to use. Options: integrated, pedigree. Default: pedigree')
+    integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help='Flag to use pedigree-phased HD individuals as the haplotype reference library. This option decreases runtime at the cost of accuracy')
+    integrated_parser.add_argument('-prioritze_individual', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
+    # integrated_parser.add_argument('-diminishing_defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
 
 
     # prephase_parser = parser.add_argument_group("Prephase options")
@@ -262,14 +262,14 @@ def mask_genotypes(mat, mask):
 
 def set_decision_rule(pedigree, args):
     for ind in pedigree:
-        if not args.defer_parents:
+        if args.prioritze_individual:
             ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_individual
         
-        if args.defer_parents:
+        else :
             ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents
         
-        if args.diminishing_defer_parents:
-            ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents_diminish
+        # if args.diminishing_defer_parents:
+        #     ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents_diminish
         
         # if args.integrated_decision_rule == "balanced":
         #     ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_balanced
