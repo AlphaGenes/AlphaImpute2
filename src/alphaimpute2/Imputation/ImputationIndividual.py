@@ -29,7 +29,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.backward_information = None
 
         self.marker_score = None
-        self.population_imputation_target = None
+        self.population_imputation_target = True
 
         # There may be times that we want to store original genotype and haplotype information.
         self.original_genotypes = None
@@ -287,7 +287,7 @@ class jit_Phasing_Individual(object):
         self.own_haplotypes = np.full((0, 0), 0, dtype = np.int64)
         self.has_own_haplotypes = False
 
-        self.population_imputation_target = True
+        self.population_imputation_target = population_imputation_target
 
     def set_own_haplotypes(self, haplotypes_in):
         self.own_haplotypes = haplotypes_in

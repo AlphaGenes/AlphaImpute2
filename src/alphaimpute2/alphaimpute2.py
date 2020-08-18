@@ -10,22 +10,14 @@ from .Imputation import ArrayClustering
 
 from .tinyhouse.Utils import time_func
 
-import datetime
 import argparse
 import numpy as np
-from numba import njit
 
 try:
     profile
 except:
     def profile(x): 
         return x
-
-def setupImputation(pedigree):
-    for ind in pedigree :
-        ind.setupIndividual()
-        Imputation.ind_align(ind)
-
 
 
 def getArgs() :
@@ -66,21 +58,15 @@ def getArgs() :
     integrated_parser = parser.add_argument_group("Joint imputation options") 
     integrated_parser.add_argument('-chip_threshold',default=0.95, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.95')
     integrated_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.9, required=False, type=float, help='Genotype calling threshold for first round of peeling before phasing. This value should be conservative.. Default: 0.9.')
-    # integrated_parser.add_argument('-integrated_decision_rule',default="individual", required=False, type=str, help='Decision rule to use when determining whether to use population or pedigree imputation. Options: individual, balanced, parents. Default: individual')
-    # integrated_parser.add_argument('-joint_type',default="pedigree", required=False, type=str, help='Decision rule to use when determining which joint option to use. Options: integrated, pedigree. Default: pedigree')
     integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help='Flag to use pedigree-phased HD individuals as the haplotype reference library. This option decreases runtime at the cost of accuracy')
     integrated_parser.add_argument('-prioritze_individual', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
-    # integrated_parser.add_argument('-diminishing_defer_parents', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
-
-
-    # prephase_parser = parser.add_argument_group("Prephase options")
-    # prephase_parser.add_argument('-allow_prephased_bypass', action='store_true', required=False, help='Allow the algorithm to use pedigree phased haplotypes to create a reference library.')
-    # prephase_parser.add_argument('-prephased_threshold',default=5000, required=False, type=int, help='Number of individuals required to be fully phased before using the pre-phase bypass. Default: 5000.')
     
     return InputOutput.parseArgs("AlphaImpute", parser)
 
 
 def writeGenoProbs(pedigree, genoProbFunc, outputFile):
+    # Function to write out the penetrance/anterior/posterior terms for individuals.
+    # Used for debuging heuristic peeling
     with open(outputFile, 'w+') as f:
         for idx, ind in pedigree.writeOrder():
             matrix = genoProbFunc(ind)
@@ -91,32 +77,12 @@ def writeGenoProbs(pedigree, genoProbFunc, outputFile):
 
 def create_haplotype_library(hd_individuals, args):
 
-    pre_phase_ran = False
-
-    # if False: # args.allow_prephased_bypass:
-
-    #     # Try to use prephased haplotypes to do the phasing -- if so, run two rounds of phasing and then a round of imputation.
-    #     # Need to tune parameters here...
-
-    #     prephased_hd_individuals = [ind for ind in hd_individuals if ind.percent_phased > .95]
-    #     unphased_hd_individuals = [ind for ind in hd_individuals if ind.percent_phased <= .95]
-
-    #     if len(prephased_hd_individuals) > args.prephased_threshold :
-    #         pre_phase_ran = True
-            
-    #         print("Phasing", len(prephased_hd_individuals), "pre-phased HD individuals")
-    #         cycles = [args.n_phasing_particles]*2
-    #         run_phasing(prephased_hd_individuals, cycles, args)
-
-
-    #         print("Phasing remaining HD individuals.")
-    #         impute_individuals_on_chip(unphased_hd_individuals, args, prephased_hd_individuals)
-
-    if not pre_phase_ran :
-        cycles = [1] + [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
-        ParticlePhasing.run_phasing(hd_individuals, cycles, args)
+    # Adds an initial 1-particle phasing cycle to jump start the process.
+    cycles = [1] + [args.n_phasing_particles for i in range(args.n_phasing_cycles)]
+    ParticlePhasing.run_phasing(hd_individuals, cycles, args)
 
     for individual in hd_individuals:
+        # Current haplotypes are the haplotypes from the last round of phasing.
         individual.clear_phasing_view(keep_current_haplotypes = True)
 
 
@@ -124,7 +90,9 @@ def create_haplotype_library(hd_individuals, args):
 
 
 def run_population_imputation(ld_individuals, args, haplotype_library, arrays):
+    # Split up the population based on existing LD panels, and then impute each panel.
     ld_arrays = ArrayClustering.create_array_subset(ld_individuals, arrays, min_markers = 0, min_individuals = 0)
+
     for i, chip in enumerate(ld_arrays):
         print("")
         print(f"Imputing chip {i+1} of {len(ld_arrays)}")
@@ -132,6 +100,11 @@ def run_population_imputation(ld_individuals, args, haplotype_library, arrays):
 
 
 def run_population_only(pedigree, arrays, args):
+    # One of three ways to run the program -- uses only population imputation. For use in populations with unknown pedigree
+    # 1. Creates a set of HD individuals based on args.hd_threshold.
+    # 2. Runs phasing on HD individuals 
+    # 3. Run imputation on LD individuals
+
     print_title("Population Imputation Only")
 
     hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9)  > args.hd_threshold]
@@ -150,45 +123,18 @@ def run_population_only(pedigree, arrays, args):
     print(f"Number of imputation particles: {args.n_imputation_particles}")
     run_population_imputation(ld_individuals, args, haplotype_library, arrays)
 
-# def run_joint(pedigree, arrays, args):
-#     # Set decision rule
-#     set_decision_rule(pedigree, args)
 
-#     # original_hd_individuals = [ind for ind in pop_individuals if np.mean(ind.genotypes != 9) > args.hd_threshold]
-#     for ind in pedigree:
-#         if np.mean(ind.genotypes != 9) > args.hd_threshold :
-#             ind.original_hd = True
-#         else:
-#             ind.original_hd = False
-
-#     final_cutoff = args.final_peeling_threshold_for_phasing
+def run_combined(pedigree, arrays, args):
+    # One of three ways to run the program -- for general use for populations with known/unknown pedigree
+    # 1. Runs pedigree imputation with a conservative cutoff.
+    # 1a. Runs peeling using: Heuristic_Peeling.run_integrated_peeling
+    # 1b. Masks individuals back down to their original genotyping array (this is important to help with reducing missing markers for phasing)
+    # 1c. Splits the population out into HD individuals, ld for population imputation, and ld for pedigree imputation 
+    # 2. Runs phasing on HD individuals 
+    # 3. Run imputation on LD individuals for population imputation
+    # 4. Lesions the pedigree to block parent information for pseudofounders.
+    # 5. Run final round of peeling.
     
-#     hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation = Heuristic_Peeling.run_integrated_peeling(pedigree, args, final_cutoff = final_cutoff)
-
-#     for ind in hd_individuals:
-#         ind.population_imputation_target = True
-
-#     pop_individuals = hd_individuals + ld_for_pop_imputation
-
-#     for array in arrays:
-#         mask_array(array)
-
-#     hd_individuals = [ind for ind in pop_individuals if np.mean(ind.genotypes != 9) > args.hd_threshold]
-#     ld_for_pop_imputation = [ind for ind in pop_individuals if np.mean(ind.genotypes != 9) <= args.hd_threshold]
-
-
-#     haplotype_library = create_haplotype_library(hd_individuals, args)
-
-#     ld_individuals = ld_for_pop_imputation + ld_for_ped_imputation
-#     print("Total: ", len(ld_individuals), "Post Filter: ", len(ld_for_pop_imputation))
-
-#     run_population_imputation(ld_for_pop_imputation, args, haplotype_library, arrays)
-
-#     # Run final round of heuristic peeling, peeling down.
-#     Heuristic_Peeling.run_integrated_peel_down(pedigree, ld_for_ped_imputation, args, final_cutoff = .1) 
-
-
-def run_joint_pedigree_end(pedigree, arrays, args):
     print_title("Population and Pedigree Imputation")
 
     for ind in pedigree:
@@ -199,12 +145,12 @@ def run_joint_pedigree_end(pedigree, arrays, args):
 
 
     set_decision_rule(pedigree, args)
-    final_cutoff = args.final_peeling_threshold_for_phasing
 
     print_title("Initial Pedigree Imputation")
     print(f"Number of peeling cycles: {args.cycles}")
-    print(f"Final cutoff before population imputation: {final_cutoff}")
-    hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation = Heuristic_Peeling.run_integrated_peeling(pedigree, args, final_cutoff = final_cutoff, arrays = arrays)
+    print(f"Final cutoff before population imputation: {args.final_peeling_threshold_for_phasing}")
+
+    hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation = Heuristic_Peeling.run_integrated_peeling(pedigree, args, final_cutoff = args.final_peeling_threshold_for_phasing, arrays = arrays)
 
 
     print_title("Phasing")
@@ -217,8 +163,9 @@ def run_joint_pedigree_end(pedigree, arrays, args):
 
     else:
         haplotype_library = hd_individuals
-
     ld_individuals = ld_for_pop_imputation + ld_for_ped_imputation
+    
+
     print_title("Imputation")
     print(f"Number of imputation particles: {args.n_imputation_particles}")
     print(f"Total number of LD individuals: ", len(ld_individuals))
@@ -233,7 +180,7 @@ def run_joint_pedigree_end(pedigree, arrays, args):
 
     population_targets = [ind for ind in pedigree if ind.population_imputation_target]
     for ind in population_targets:
-        ind.mask_parents()
+        ind.mask_parents() # Lesions the pedigree.
     pedigree.reset_families()
 
     # Run final round of heuristic peeling, peeling down.
@@ -243,22 +190,6 @@ def run_joint_pedigree_end(pedigree, arrays, args):
         ind.unmask_parents()
     pedigree.reset_families()
 
-def mask_array(array):
-
-    mask = array.genotypes
-    print(np.sum(mask))
-    for ind in array.individuals:
-        if not ind.original_hd:
-            mask_genotypes(ind.genotypes, mask)
-            mask_genotypes(ind.haplotypes[0], mask)
-            mask_genotypes(ind.haplotypes[1], mask)
-
-@njit
-def mask_genotypes(mat, mask):
-    for i in range(len(mask)):
-        if mask[i] == 0:
-            mat[i] = 9
-
 
 def set_decision_rule(pedigree, args):
     for ind in pedigree:
@@ -267,22 +198,22 @@ def set_decision_rule(pedigree, args):
         
         else :
             ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents
-        
-        # if args.diminishing_defer_parents:
-        #     ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_parents_diminish
-        
-        # if args.integrated_decision_rule == "balanced":
-        #     ind.marker_score_decision_rule = ind.marker_score_decision_rule_prioritize_balanced
+
 
 def run_pedigree_only(pedigree, args):
-    final_cutoff = args.final_peeling_threshold
+    # One of three ways to run the program -- for use in populations with pedigree information where fast imputation needs to be done.
+    # Will lead to low accuracy on founders of the population
+    # 1. Runs pedigree imputation.
+
     print_title("Pedigree Imputation Only")
     print(f"Number of peeling cycles: {args.cycles}")
-    print(f"Final cutoff: {final_cutoff}")
-    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = final_cutoff)
+    print(f"Final cutoff: {args.final_peeling_threshold}")
+    Heuristic_Peeling.runHeuristicPeeling(pedigree, args, final_cutoff = args.final_peeling_threshold)
 
 
 def run_cluster_only(pedigree, args):
+    # Clusters individuals based on their array and writes out the results.
+
     print_title("Array Clustering Only")
     arrays = ArrayClustering.cluster_individuals_by_array([ind for ind in pedigree], args.min_chip)
     print("Final array clusters:")
@@ -310,43 +241,49 @@ def write_out_data(pedigree, args):
 def main():
     InputOutput.print_boilerplate("AlphaImpute2", "v0.0.1")
     args = getArgs()
+
     InputOutput.setNumbaSeeds(12345)
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
-
     read_in_data(pedigree, args)
-    setupImputation(pedigree)
+    for ind in pedigree :
+        ind.setupIndividual()
+        Imputation.ind_align(ind)
 
-    # If pedigree imputation. Run initial round of pedigree imputation.
-    # If no population imputation, run with a low cutoff.
-
-    pedigree_only = args.ped_only
-    pop_only = args.pop_only
-    joint = not pedigree_only and not pop_only
-
-    if pedigree_only and pop_only:
-        print("Given arguments -ped_only and -pop_only. Running in joint mode.")
-        joint = True
-
+    # First check if clustering only.
     if args.cluster_only:
         run_cluster_only(pedigree, args)
         exit()
 
-    elif pedigree_only:
+
+    # Set up run mode. Default: Joint. Options Joint, Ped_only, Pop_only
+    if args.ped_only:
+        run_mode = "ped_only"
+    elif args.pop_only:
+        run_mode = "pop_only"
+    else:
+        run_mode = "joint"
+
+    if args.ped_only and args.pop_only:
+        print("Given arguments -ped_only and -pop_only. Running in joint mode.")
+        run_mode = "joint"
+    
+    if run_mode = "ped_only":
         run_pedigree_only(pedigree, args)
 
-    elif pop_only or joint:
+    if run_mode = "pop_only" or run_mode == "joint":
         print_title("Array Clustering")
         arrays = ArrayClustering.cluster_individuals_by_array([ind for ind in pedigree], args.min_chip)
         print(arrays)
 
-        if pop_only:
+        if run_mode = "pop_only":
             run_population_only(pedigree, arrays, args)
-        if joint:
-            run_joint_pedigree_end(pedigree, arrays, args)
+        if run_mode = "joint":
+            run_combined(pedigree, arrays, args)
 
 
     # Write out results
     write_out_data(pedigree, args)
+
 
 def print_title(text, center = True):
     print("")
