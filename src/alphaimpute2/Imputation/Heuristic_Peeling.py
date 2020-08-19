@@ -20,22 +20,6 @@ except:
     def profile(x): 
         return x
 
-# Decorator to add in timings with custom text.
-# For more reading see, maybe https://stackoverflow.com/questions/5929107/decorators-with-parameters
-# def time_func(text):
-#     # This creates a decorator with "text" set to "text"
-#     def timer_dec(func):
-#         # This is the returned, modified, function
-#         def timer(*args, **kwargs):
-#             start_time = datetime.datetime.now()
-#             values = func(*args, **kwargs)
-#             print(f"{text}: {(datetime.datetime.now() - start_time).total_seconds()} seconds")
-#             return values
-#         return timer
-
-#     return timer_dec
-
-
 # Overall pipeline looks something like:
 # From top down:
     # For the pedigree, calculate segregation, and use it to peel down.
@@ -62,6 +46,9 @@ def print_title(text):
 @profile
 @time_func("Heuristic Peeling")
 def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
+    # This version of peeling should be run if you are just running pedigree imputation.
+    # Either as part of pop_only, or the last step of the combined algorithm.
+
     # Set up peeling view
     setupHeuristicPeeling(pedigree, args)
 
@@ -75,7 +62,7 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
         call_genotypes(ind, final_cutoff, args.error)
 
 
-    # Clear peeling view
+    # Clear peeling view from all individuals to reduce memory impact.
     for ind in pedigree:
         ind.peeling_view = None
 
@@ -83,22 +70,28 @@ def runHeuristicPeeling(pedigree, args, final_cutoff = .3):
 @profile
 @time_func("Heuristic Peeling")
 def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
-    
+    # This version of peeling should be run if you are then going to run population imputation
+    # This is the first step of the combined algorithm.
+    # It runs peeling cycles, and then splits the population into HD/LD individuals.
+
     # Set up peeling view
     setupHeuristicPeeling(pedigree, args)
 
-    # Run peeling cycle. Cutoffs are for genotype probabilities. 
+    # Run peeling cycles. 
+    # Cutoffs are for genotype probabilities. 
     # Segregation call value is hard-coded to .99
 
     cutoffs = [.99] + [args.cutoff for i in range(args.cycles - 1)]
     runPeelingCycles(pedigree, args, cutoffs)
 
-
     for ind in pedigree:
         ind.set_original_genotypes() # May need to reset individuals
         call_genotypes(ind, final_cutoff, args.error)
 
+
+
     if args.lazy_phasing:
+        # Option to build the haplotype library directly from pedigree-phased haplotypes.    
         hd_individuals = extract_haplotype_library(pedigree, args, final_cutoff)
 
 
@@ -109,6 +102,9 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
 
     if arrays is not None:
         for array in arrays:
+            # Mask markers according to original array density.
+            # This seems to improve accuracy in some cases by making sure individuals have a high proportion (>0.9) of non-missing markers on the chip they are on.
+            # Possible Improvement: Allow individuals to move arrays before masking.
             mask_array(array)
 
 
@@ -123,25 +119,23 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
         ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.population_imputation_target]
 
     else:
-        # hd_individuals already set.
+        # hd_individuals already set before masking the markers.
         ld_for_pop_imputation = [ind for ind in pedigree if ind.population_imputation_target]
         ld_for_ped_imputation = [ind for ind in pedigree if not ind.population_imputation_target]
 
-    # Already set for this so don't need to run.
-    # for ind in hd_individuals + ld_for_pop_imputation:
-    #     call_genotypes(ind, final_cutoff, args.error)
-
     for ind in ld_for_ped_imputation:
-        #### THIS NEEDS TO BE FIXED!!!!
         ind.restore_original_genotypes()
 
-    # Clear peeling view
+    # Clear peeling view from all individuals to reduce memory impact.
     for ind in pedigree:
         ind.peeling_view = None
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
 def extract_haplotype_library(pedigree, args, final_cutoff):
+    # Select individuals with high numbers of phased markers and add them to the pool of hd_individuals.
+    # Returns a list of individuals.
+
     hd_individuals = []
     for ind in pedigree:
         ind.restore_original_genotypes()
@@ -182,32 +176,25 @@ def mask_genotypes(mat, mask):
 
 def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and penetrance value for Heuristic peeling.
-
     for ind in pedigree:
         ind.setPeelingView()
-        # ind.peeling_view.setupProbabilityValues(args.error)
-
-    # Set anterior values for founders. 
-    # Although the maf will change as more individuals are imputed, we're just going to do this once.
-    
-    # pedigree.setMaf()
-    # founder_anterior = ProbMath.getGenotypesFromMaf(pedigree.maf)
-    # founder_anterior = founder_anterior*(1-0.1) + 0.1/4 # Add an additional ~10% noise to prevent fixing of genotypes with low maf.
-    # for ind in pedigree:
-    #     if ind.isFounder():
-    #         ind.peeling_view.setAnterior(founder_anterior.copy())
 
 def call_genotypes(ind, final_cutoff, error_rate):
     #### NOTE: THIS WORKS BUT REQUIRES SETTING THESE IN PEDIGREE "PEEL DOWN" ORDER
-    # IF NOTE, PARENT'S ANTERIOR VALUES MAY NOT BE CORRECTLY SET.
+    # IF NOT, PARENT'S ANTERIOR VALUES MAY NOT BE CORRECTLY SET.
     # FIX: RUN FINAL ROUND OF PEEL DOWN AT THE END.
+    
     if ind.peeling_view.has_offspring:
         if ind.sire is not None and ind.dam is not None:
+            # For individuals with offspring, recalculate the anterior value, and then set the genotypes.
+            # The posterior is already calculated.
+
             anterior = getAnterior(ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view)
             ind.peeling_view.setAnterior(anterior)
             ind.peeling_view.setGenotypesAll(final_cutoff)
             ind.peeling_view.clearAnterior()
         else:
+            # If no parents, directly set genotypes from the penetrance field.
             ind.peeling_view.setGenotypesAll(final_cutoff)
 
     else:
@@ -217,11 +204,11 @@ def call_genotypes(ind, final_cutoff, error_rate):
         ind.peeling_view.setValueFromGenotypes(penetrance, error_rate)
         
         if ind.sire is not None and ind.dam is not None:
-            # Make sure the sire/dam are setup right.
-            # ind.sire.peeling_view.setGenotypesAll(final_cutoff)
-            # ind.dam.peeling_view.setGenotypesAll(final_cutoff)
+            # Re-calculate parent genotypes with all sources of information.
             ind.sire.peeling_view.setGenotypesAll(ind.sire.peeling_view.currentCutoff)
             ind.dam.peeling_view.setGenotypesAll(ind.dam.peeling_view.currentCutoff)
+
+            # Calculate anterior from the parents.
             anterior = getAnterior(ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view)
             penetrance *= anterior # Add the penetrance with the anterior. Normalization will happen within the function.
 
@@ -242,7 +229,7 @@ def pedigreePeelDown(pedigree, args, cutoff):
     # This function peels down a pedigree; i.e. it finds which regions an individual inherited from their parents, and then fills in the individual's anterior term using that information.
     # To do this peeling, individual's genotypes should be set to poster+penetrance; parent's genotypes should be set to All.
     # Since parents may be shared across families, we set the parents seperately from the rest of the family. 
-    # We then set the child genotypes, calculate the segregation estimates, and calculate the anterior term on a family by family basis (set_segregation_peel_down).
+    # We then set the child genotypes, calculate the segregation estimates, and calculate the anterior term on a family by family basis (peel_down_family).
 
     for generation in pedigree.generations:
         for parent in generation.parents:
@@ -250,10 +237,10 @@ def pedigreePeelDown(pedigree, args, cutoff):
 
         if args.maxthreads <= 1:
             for family in generation.families:
-                set_segregation_peel_down(family, cutoff)
+                peel_down_family(family, cutoff)
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.maxthreads) as executor:
-                executor.map(set_segregation_peel_down, generation.families, repeat(cutoff))
+                executor.map(peel_down_family, generation.families, repeat(cutoff))
 
 
 @time_func("Peel up")
@@ -297,21 +284,20 @@ def pedigreePeelUp(pedigree, args, cutoff):
 ############
 
 
-def set_segregation_peel_down(family, cutoff):
+def peel_down_family(family, cutoff):
     sire = family.sire.peeling_view
     dam = family.dam.peeling_view
     
     # Trying out the new list interface.    
     offspring = numba.typed.List()
     for ind in family.offspring:
-        if ind.peeling_view.imputation_target:
-            offspring.append(ind.peeling_view)
-    # offspring = [ind.peeling_view for ind in family.offspring]
+        offspring.append(ind.peeling_view)
+
     if len(offspring) > 0:
-        set_segregation_peel_down_jit(sire, dam, offspring, cutoff)
+        peel_down_family_jit(sire, dam, offspring, cutoff)
 
 @jit(nopython=True, nogil = True)
-def set_segregation_peel_down_jit(sire, dam, offspring, cutoff):
+def peel_down_family_jit(sire, dam, offspring, cutoff):
 
     nOffspring = len(offspring)
     for child in offspring:
@@ -332,6 +318,7 @@ def set_segregation_peel_down_jit(sire, dam, offspring, cutoff):
 @jit(nopython=True, nogil = True)
 def getAnterior(ind, sire, dam):
 
+    # Sets the anterior term based on the parent's genotype probabilities
     nLoci = len(ind.genotypes)
 
     anterior = np.full((4, nLoci), 0, dtype = np.float32)
@@ -383,7 +370,6 @@ def heuristicPeelUp_family(family, cutoff):
     for ind in family.offspring:
         offspring.append(ind.peeling_view)
 
-    # offspring = [ind.peeling_view for ind in family.offspring]
     sire_scores, dam_scores = heuristicPeelUp_family_jit(sire, dam, offspring, cutoff)
 
     family.sire.peeling_view.addPosterior(sire_scores, family.idn)
@@ -400,6 +386,7 @@ def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff):
         child.setPosterior()
         child.setGenotypesPosterior(cutoff)
 
+    # Re-estimate the offspring's segregation value
     for child in offspring:
         setSegregation(child, sire, dam)
 
@@ -412,15 +399,19 @@ def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff):
     for child in offspring:
         peelChildToParents(child, combined_score)
 
+    # Calculate individual parental scores by marginalizing over the genotype probabilities of the other parent.
     sire_scores, dam_scores = collapseScoresWithGenotypes(combined_score, sire.genotypeProbabilities, dam.genotypeProbabilities)
     return sire_scores, dam_scores
 
 @jit(nopython=True, nogil = True)
 def peelChildToParents(child, scores):
+    # TODO: Test fully inline version of this function.
+
     nLoci = scores.shape[2]
     for i in range(nLoci):
         if child.genotypes[i] != 9 or child.haplotypes[0][i] !=9 or child.haplotypes[1][i] !=9:
             segTensor = getLogSegregationForGenotype(child, i)
+            # Summation below was broken out for speed gains in previous versions of numbda
             for j in range(4):
                 for k in range(4):
                     scores[j, k, i] += segTensor[j, k]
@@ -452,6 +443,7 @@ def convert_seg_to_int(val, threshold):
 
 @jit(nopython=True, nogil = True)
 def collapseScoresWithGenotypes(scores, sire_genotype_probs, dam_genotype_probs):
+    # Takes in log-scores; outputs log-posterior for sire and dam.
     nLoci = dam_genotype_probs.shape[-1]
 
     sire_score = np.full((4, nLoci), 0, dtype = np.float32)
@@ -461,8 +453,10 @@ def collapseScoresWithGenotypes(scores, sire_genotype_probs, dam_genotype_probs)
     values = np.full((4, 4), 0, dtype = np.float32)
 
     for i in range(nLoci):
+        # Convert log-scores to scores
         exp_2D_norm(scores[:,:,i], values)
         
+        # Calculate sire posterior term
         for j in range(4):
             for k in range(4):
                 sire_score[j, i] += values[j,k]*(dam_genotype_probs[k, i]*(1-e) + e/4)
@@ -470,6 +464,7 @@ def collapseScoresWithGenotypes(scores, sire_genotype_probs, dam_genotype_probs)
         norm_1D(sire_score[:,i])
         sire_score[:,i] += 1e-8
 
+        # Calculate dam posterior term
         for j in range(4):
             for k in range(4):
                 dam_score[j, i] += values[k,j]*(sire_genotype_probs[k, i]*(1-e) + e/4)
@@ -494,39 +489,17 @@ def setSegregation(ind, sire, dam):
     pointEstimates = np.full((4, nLoci), 1, dtype = np.float32)
     fillPointEstimates(pointEstimates, ind, sire, dam)
 
-
-    smoothedEstimates = smoothPointSeg(pointEstimates, 1.0/nLoci) # This is where different map lengths could be added.
+    # Runs a forward backward algorithm on the pointEstimates
+    smoothedEstimates = smoothPointSeg(pointEstimates, 1.0/nLoci*ind.map_length) # This is where different map lengths could be added.
 
     # Then set the segregation values for the individual.
     ind.segregation[0][:] = smoothedEstimates[2, :] + smoothedEstimates[3,:]
     ind.segregation[1][:] = smoothedEstimates[1, :] + smoothedEstimates[3,:]
 
-    # if ind.idn == 4322:
-    #     print("")
-    #     print(ind.idn)
-    #     print(sire.anterior[:,0:10])
-    #     print(sire.genotypeProbabilities[:,0:10])
-    #     print(sire.segregation[0][0:10])
-    #     print(sire.segregation[1][0:10])
-    #     print("")
-    #     print(sire.genotypes[0:10])
-    #     print(sire.haplotypes[0][0:10])
-    #     print(sire.haplotypes[1][0:10])
-    #     print("")
-    #     print(dam.genotypes[0:10])
-    #     print(dam.haplotypes[0][0:10])
-    #     print(dam.haplotypes[1][0:10])
-    #     print("")
-    #     print(ind.genotypes[0:10])
-    #     print(ind.haplotypes[0][0:10])
-    #     print(ind.haplotypes[1][0:10])
-        
-    #     print(pointEstimates[:,0:10])
-    #     print(ind.segregation[0][0:10])
-    #     print(ind.segregation[1][0:10])
 
 @jit(nopython=True, nogil = True)
 def fillPointEstimates(pointEstimates, ind, sire, dam):
+    # Calculate probability of each segregation state conditional on parent's genotype state and own genotypes.
     nLoci = pointEstimates.shape[1]
     e = 0.01 # Assume 1% genotyping error.
     for i in range(nLoci):

@@ -369,7 +369,6 @@ spec['original_genotypes'] = int8[:]
 
 spec['has_offspring'] = boolean
 spec['has_parents'] = boolean
-spec['imputation_target'] = boolean
 spec['posterior_open'] = boolean
 spec['anterior_availible'] = boolean
 
@@ -402,7 +401,6 @@ class jit_Peeling_Individual(object):
         self.idn = idn
         self.genotypes = genotypes
         self.haplotypes = haplotypes
-        self.imputation_target = True
 
 
         # Initial value for segregation is .5 to represent uncertainty between haplotype inheritance.
