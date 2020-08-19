@@ -37,6 +37,7 @@ def getArgs() :
     core_impute_parser.add_argument('-pop_only', action='store_true', required=False, help='Flag to run the population based imputation algorithm only.')
     core_impute_parser.add_argument('-ped_only', action='store_true', required=False, help='Flag to run the pedigree based imputation algorithm only.')  
     core_impute_parser.add_argument('-cluster_only', action='store_true', required=False, help='Flag to just cluster individuals into marker arrays and write out results.')
+    core_impute_parser.add_argument('-length', default=1, required=False, type=float, help='Estimated map length for pedigree and population imputation in Morgans. Default: 1 (100cM).')
 
 
     pedigree_parser = parser.add_argument_group("Pedigree imputation options")
@@ -246,6 +247,7 @@ def main():
     pedigree = Pedigree.Pedigree(constructor = ImputationIndividual.AlphaImputeIndividual) 
     read_in_data(pedigree, args)
     for ind in pedigree :
+        ind.map_length = args.length
         ind.setupIndividual()
         Imputation.ind_align(ind)
 

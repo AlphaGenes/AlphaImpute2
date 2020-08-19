@@ -42,7 +42,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
         seed = self.get_random_seed()
         self.random_generator = np.random.RandomState(seed)
-
+        self.map_length = None
 
 
     def copy(self):
@@ -203,7 +203,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
         has_parents = (self.sire is not None) or (self.dam is not None)
 
-        self.peeling_view = jit_Peeling_Individual(self.idn, self.genotypes, self.haplotypes, self.has_offspring, has_parents, nLoci)
+        self.peeling_view = jit_Peeling_Individual(self.idn, self.genotypes, self.haplotypes, self.has_offspring, has_parents, nLoci, self.map_length)
 
     def setPhasingView(self):
         # Set the 
@@ -217,7 +217,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
             backward = self.backward_information
         self.current_haplotypes = (self.haplotypes[0].copy(), self.haplotypes[1].copy())
 
-        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, self.current_haplotypes, self.population_imputation_target, nLoci)
+        self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, self.current_haplotypes, self.population_imputation_target, nLoci, self.map_length)
 
 
     def reverse_individual(self):
@@ -262,6 +262,7 @@ spec['current_haplotypes'] = numba.typeof((np.array([0, 1], dtype = np.int8), np
 
 spec['penetrance'] = float32[:,:]
 spec['backward'] = float32[:,:]
+spec['map_length'] = float32
 
 spec['own_haplotypes'] = int64[:,:]
 spec['has_own_haplotypes'] = boolean
@@ -272,13 +273,15 @@ class jit_Phasing_Individual(object):
     '''
     This class holds data for phasing a given individual.
     '''
-    def __init__(self, idn, genotypes, haplotypes, backward, current_haplotypes, population_imputation_target, nLoci):
+    def __init__(self, idn, genotypes, haplotypes, backward, current_haplotypes, population_imputation_target, nLoci, map_length):
         self.idn = idn
         self.nLoci = nLoci
         self.genotypes = genotypes
         self.haplotypes = haplotypes
         self.current_haplotypes = current_haplotypes
         
+        self.map_length = map_length
+
         self.penetrance = np.full((4, 1), 1, dtype = np.float32) 
 
         # self.forward = None
@@ -381,6 +384,9 @@ spec['segregation'] = numba.typeof((np.array([0, 1], dtype = np.float32), np.arr
 
 spec['newPosterior'] = optional(numba.typeof([np.full((4, 100), 0, dtype = np.float32)]))
 
+spec['map_length'] = float32
+
+
 spec['anterior'] = float32[:,:]
 # spec['penetrance'] = float32[:,:]
 spec['posterior'] = float32[:,:]
@@ -396,11 +402,13 @@ class jit_Peeling_Individual(object):
     '''
     This class holds a lot of arrays for peeling individuals and a handful of functions to translate genotypes => probabilities and back again.
     '''
-    def __init__(self, idn, genotypes, haplotypes, has_offspring, has_parents, nLoci):
+    def __init__(self, idn, genotypes, haplotypes, has_offspring, has_parents, nLoci, map_length):
         self.nLoci = nLoci
         self.idn = idn
         self.genotypes = genotypes
         self.haplotypes = haplotypes
+        
+        self.map_length = map_length
 
 
         # Initial value for segregation is .5 to represent uncertainty between haplotype inheritance.
