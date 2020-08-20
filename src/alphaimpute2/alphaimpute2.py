@@ -52,9 +52,14 @@ def getArgs() :
     population_parser.add_argument('-n_phasing_particles',default=40, required=False, type=int, help='Number of phasing particles. Defualt: 40.')
     population_parser.add_argument('-n_imputation_particles',default=100, required=False, type=int, help='Number of imputation particles. Defualt: 100.')
 
-    population_parser.add_argument('-hd_threshold',default=0.95, required=False, type=float, help='Percentage of non-missing markers to be classified as high-density when building the haplotype library. Default: 0.95.')
+    population_parser.add_argument('-hd_threshold',default=0.95, required=False, type=float, help='Percentage of non-missing markers for an individual be classified as high-density when building the haplotype library. Default: 0.95.')
     population_parser.add_argument('-min_chip',default=100, required=False, type=float, help='Minimum number of individuals on an inferred low-density chip for it to be considered a low-density chip. Default: 0.05')
+    population_parser.add_argument('-phasing_loci_inclusion_threshold', default=0.9, required=False, type=float, help='Percentage of non-missing markers per loci for it to be included on a chip for imputation. Default: 0.9.')
     
+    population_parser.add_argument('-imputation_length_modifier', default=1, required=False, type=float, help='Increases the effective map length of the chip for population imputation by this amount. Default: 1.')
+    population_parser.add_argument('-phasing_length_modifier', default=5, required=False, type=float, help='Increases the effective map length of the chip for Phasing imputation by this amount. Default: 5.')
+    population_parser.add_argument('-phasing_consensus_window_size', default=50, required=False, type=int, help='Number of markers used to evaluate haplotypes when creating a consensus haplotype. Default: 50.')
+
 
     integrated_parser = parser.add_argument_group("Joint imputation options") 
     integrated_parser.add_argument('-chip_threshold',default=0.95, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.95')

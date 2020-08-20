@@ -32,6 +32,10 @@ spec['hap_range'] = numba.typeof((0,1))
 
 @jitclass(spec)
 class HaplotypeRange(object):
+    # Object to encode a range of loci, based on a start/stop position.
+    # Encoding_index is generally the same as stop.
+    # hap_range are the haplotypes selected in the region.
+
     def __init__(self, start, stop, hap_range, encoding_index):
         self.start = start
         self.stop = stop
@@ -53,6 +57,9 @@ spec['residual_length'] = numba.int64[:,:]
 @jitclass(spec)
 class HaplotypeInformation(object):
     # All of this is in the context of a specific library.
+    # This contains information on the haplotype ranges for a given sample.
+    # This is primarily used for imputation, where these ranges are used to expand out the sample for un-considered loci.
+
     def __init__(self, bw_library):
         self.bw_library = bw_library
         
@@ -173,12 +180,13 @@ class PhasingSample(object):
     def sample(self, bw_library, ind, random_samples):
 
         raw_genotypes = haplib_sample_alt(self, bw_library, ind, random_samples)
-        # raw_genotypes = haplib_sample(self, bw_library, ind)
         self.haplotypes = get_haplotypes(raw_genotypes)
         self.genotypes = self.haplotypes[0] + self.haplotypes[1]
 
 @jit(nopython = True, nogil=True)
 def get_haplotypes(raw_genotypes):
+    # Decode the 0,1,2,3 coded genotypes into a pair of 0,1 coded haplotypes.
+
     nLoci = len(raw_genotypes)
     pat_hap = np.full(nLoci, 9, dtype = np.int8)
     mat_hap = np.full(nLoci, 9, dtype = np.int8)
@@ -203,7 +211,7 @@ def get_haplotypes(raw_genotypes):
 
 # @jit(nopython = True, nogil=True)
 # def haplib_sample(sample, bw_library, ind):
-#     #### So this is going to get sorta ugly pretty fast.
+#     #### This is old code that does not inline function calls.
 
 #     nHaps, nLoci = bw_library.zeroOccNext.shape
 
@@ -336,8 +344,13 @@ def get_haplotypes(raw_genotypes):
 
 @jit(nopython = True, nogil=True)
 def haplib_sample_alt(sample, bw_library, ind, random_samples):
-    #### So this is going to get sorta ugly pretty fast.
+    # Note: This is the primary sampling function. We do a couple of things here that are bad programming practice, but give substantial speed gains with numba.
+    # These include: 
+    #     1) Local variable definitions
+    #     2) manually inling most function calls -- this allows for multithreading
+    #     For manually inling functions, the original function call is denoted with "ORIGINAL". The new function call is denoted with "NEW START" and "NEW STOP"
 
+    # Local variable declarations.
     nHaps, nLoci = bw_library.zeroOccNext.shape
 
     sample.hap_info = HaplotypeInformation(bw_library)
@@ -351,7 +364,6 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
 
     geno_probs = np.full((4,4), 1, dtype = np.float32) # Just create this once.
 
-    ### Local variables.
     bw_loci = bw_library.loci
     zeroOccNext = bw_library.zeroOccNext
     nZeros = bw_library.nZeros
@@ -555,7 +567,7 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
 
             output = forward_geno_probs[:, true_index]
             for i in range(4):
-                output[i] = 0.00000001
+                output[i] = 0.00000001 # A little bit of regularization.
                 for j in range(4):
                     output[i] += geno_probs[j, i] # Second value is recombination state.
 
@@ -594,9 +606,12 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
         if total == 0:
             stop = True
             rec_state, selected_genotype = (-1, -1)
-        # value = random.random()*total
-        value = random_samples[index]*total # Single random call and cycling through it.
+        value = random_samples[index]*total # Use pre-calculated random variables.
         original_value = value
+
+        # Selects a value. Sometimes addition is wonky with rounding errors.
+        # We track the last_non_zero value, and if things don't add up at the end, 
+        # the sampled state is set to the state of the last_non_zero_value
 
         last_non_zero = (0,0)
 
@@ -616,7 +631,7 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
 
         #NEW END
 
-        # Calculate the score for the locus.
+        # Calculate the score for the locus based on genotype fit, and recombination.
         score = 0
         observed_genotype = ind_genotypes[true_index]
 
@@ -660,7 +675,7 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
 
         rec[index] = score
 
-        # get the next set of states.
+        # get the next set of states. This decodes the selected genotype state and the recombination state.
 
         # ORIGINAL LINE
         # current_state = get_new_state(selected_genotype, rec_state, current_pat, current_mat, hap_lib)
@@ -703,40 +718,15 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
         mat_ranges[0, index] = current_state[1][0]
         mat_ranges[1, index] = current_state[1][1]
 
-        # if pat_ranges[0, index] == pat_ranges[1, index] :
-        #     print(geno_probs)
-        #     print(rec_state, selected_genotype)
-        #     print(hap_lib, current_pat, current_mat)
-        #     print(hap_lib, current_pat, current_mat)
-        #     print(penetrance_and_backward[:, true_index])
-        #     print(total, value, stop, original_value)
-
-        # if mat_ranges[0, index] == mat_ranges[1, index] :
-        #     print(geno_probs)
-        #     print(rec_state, selected_genotype)
-        #     print(hap_lib, current_pat, current_mat)
-        #     print(hap_lib, current_pat, current_mat)
-        #     print(penetrance_and_backward[:, true_index])
-        #     print(total, value, stop, original_value)
-
-
         previous_state = current_state
     
     sample.forward.forward_geno_probs = forward_geno_probs
 
-    # Add the final set of states
+    # Add in tracking information at the end for imputation.
     track_hap_info = sample.track_hap_info
     if track_hap_info:
         for index in range(nLoci):          
             if index > 0 and rec_states[index] > 0 and track_hap_info: 
-
-                # if pat_ranges[0, index -1] == pat_ranges[1, index -1] :
-                #     for i in range(nLoci):
-                #         print(pat_ranges[0, i], pat_ranges[1, i])
-
-                # if mat_ranges[0, index -1] == mat_ranges[1, index -1] :
-                #     for i in range(nLoci):
-                #         print(mat_ranges[0, i], mat_ranges[1, i])
 
                 previous_state = ((pat_ranges[0, index -1], pat_ranges[1, index -1]),(mat_ranges[0, index -1], mat_ranges[1, index -1]))
                 update_hap_info(sample.hap_info, index, rec_states[index], previous_state)
