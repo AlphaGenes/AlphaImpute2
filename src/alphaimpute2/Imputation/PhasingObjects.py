@@ -1043,7 +1043,6 @@ def weighted_sample_1D(mat):
 
 ### 
 ### The following is a bunch of code to handle consensus of multiple samples.
-### This should probably be condensed and made better.
 ###
 
 spec = OrderedDict()
@@ -1059,8 +1058,11 @@ class PhasingSampleContainer(object):
         self.samples = None
         self.bw_library = bw_library
         self.ind = ind
+    
+
     @profile
     def add_sample(self, rate, error_rate, calculate_forward_estimates, track_hap_info, random_values):
+        # Set up the sample, then calculate.
         new_sample = PhasingSample(rate, error_rate)
         new_sample.calculate_forward_estimates = calculate_forward_estimates
         new_sample.track_hap_info = track_hap_info
@@ -1071,6 +1073,7 @@ class PhasingSampleContainer(object):
         else:
             self.samples += [new_sample]
 
+    
     @profile
     def get_consensus(self, sample_size):
         if len(self.samples) == 1:
@@ -1079,6 +1082,9 @@ class PhasingSampleContainer(object):
         nHaps = len(self.samples)
         nLoci = len(self.samples[0].genotypes)
 
+
+        # Create some local variables to track haplotypes as a matrix.
+        # Not 100% sure why I did it this way. Maybe a numba issue?
         haplotypes = np.full((nHaps, 2, nLoci), 0,  dtype = np.int64)
 
         for i in range(nHaps):
@@ -1100,6 +1106,8 @@ def get_consensus_haplotype(haplotypes, genotypes):
     alignment = np.full(nHaps, 0, dtype = np.int8)
     
     haps = (np.full(nLoci, 9, dtype = np.int8), np.full(nLoci, 9, dtype = np.int8))
+
+    # Get a consensus phase by tracking transitions between heterozygous states and the alignment of those transitions.
 
     for i in range(nLoci):
         if genotypes[i] == 0:
@@ -1141,39 +1149,6 @@ def get_consensus_haplotype(haplotypes, genotypes):
 
     return haps
 
-@jit(nopython=True, nogil=True) 
-def get_consensus_genotypes(haplotypes):
-    nHaps, tmp, nLoci = haplotypes.shape
-    genotypes = np.full(nLoci, 0, dtype = np.int8)
-    p = np.full(3, 0, dtype = np.int32)
-    for i in range(nLoci):
-        p[:] = 0
-        for j in range(nHaps):
-            geno = haplotypes[j, 0, i] + haplotypes[j, 1, i]      
-            p[geno] += 1
-
-        genotypes[i] = get_max_index(p)
-
-    return genotypes
-
-
-@jit(nopython=True, nogil=True) 
-def get_consensus_genotypes_max_path_length(haplotypes, rec_scores):
-    nHaps, tmp, nLoci = haplotypes.shape
-
-    genotypes = np.full(nLoci, 0, dtype = np.int8)
-    for i in range(nLoci):
-        
-        score = 0    
-        index = 0
-        for j in range(nHaps):
-            if rec_scores[j, i] > score:
-                score = rec_scores[j, i]
-                index = j
-        genotypes[i] = haplotypes[index, 0, i] + haplotypes[index, 1, i]      
-
-    return genotypes
-
 
 @jit(nopython=True, nogil=True) 
 def get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores):
@@ -1184,7 +1159,8 @@ def get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores):
     p = np.full(3, 0, dtype = np.int32)
 
     for i in range(nLoci):
-        
+        # Find the particle with the lowest score.
+        # If multiple particles have the same, lowest score, select the most common genotype.
         score = nLoci    
         index = 0
         for j in range(nHaps):
@@ -1201,36 +1177,9 @@ def get_consensus_genotypes_smallest_region_rec(haplotypes, rec_scores):
 
     return genotypes
 
-
-# @jit(nopython=True, nogil=True) 
-# def calculate_rec_distance(rec):
-#     nLoci = len(rec)
-#     forward = np.full(nLoci, 0, dtype = np.int64)
-#     backward = np.full(nLoci, 0, dtype = np.int64)
-    
-#     count = nLoci + 1
-#     for i in range(nLoci):
-#         count += 1
-#         if rec[i] >= 1:
-#             count = 0
-#         forward[i] = count
-
-#     count = nLoci + 1
-#     for i in range(nLoci-1, -1, -1):
-#         count += 1
-#         if rec[i] >= 1:
-#             count = 0
-#         backward[i] = count
-
-#     combined = np.full(nLoci, 0, dtype = np.int64)
-#     for i in range(nLoci):
-#         combined[i] = min(forward[i], backward[i])
-
-#     return combined
-
-
 @jit(nopython=True, nogil=True) 
 def count_regional_rec(rec, region = 25):
+    # Calculates the recombination score within +/- region of the target marker.
     nLoci = len(rec)
     forward = np.full(nLoci, 0, dtype = np.float32)
  
@@ -1241,6 +1190,7 @@ def count_regional_rec(rec, region = 25):
 
     combined = np.full(nLoci, 0, dtype = np.float32)
     for i in range(nLoci):
+        # Some error checking for regions that are partially out of bounds.
         start = max(0, i - region)
         end = start + region*2
         if end >= nLoci:
