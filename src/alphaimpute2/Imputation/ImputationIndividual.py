@@ -29,7 +29,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.backward_information = None
 
         self.marker_score = None
-        self.population_imputation_target = True
+        self.population_imputation_target = True # Default value.
 
         # There may be times that we want to store original genotype and haplotype information.
         self.original_genotypes = None

@@ -111,17 +111,16 @@ def run_integrated_peeling(pedigree, args, final_cutoff = .3, arrays = None):
     for individual in pedigree:
         individual.get_marker_score(args.chip_threshold) # Set up the marker scores
 
-    if not args.lazy_phasing:
+    if args.lazy_phasing:
+        ld_for_pop_imputation = [ind for ind in pedigree if ind.population_imputation_target]
+        ld_for_ped_imputation = [ind for ind in pedigree if not ind.population_imputation_target]
+
+    else:
         hd_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) > args.hd_threshold]
         ld_individuals = [ind for ind in pedigree if np.mean(ind.genotypes != 9) <= args.hd_threshold]
 
         ld_for_pop_imputation = [ind for ind in ld_individuals if ind.population_imputation_target]
         ld_for_ped_imputation = [ind for ind in ld_individuals if not ind.population_imputation_target]
-
-    else:
-        # hd_individuals already set before masking the markers.
-        ld_for_pop_imputation = [ind for ind in pedigree if ind.population_imputation_target]
-        ld_for_ped_imputation = [ind for ind in pedigree if not ind.population_imputation_target]
 
     for ind in ld_for_ped_imputation:
         ind.restore_original_genotypes()
