@@ -221,9 +221,6 @@ class AlphaImputeIndividual(Pedigree.Individual):
 
         population_imputation_target = self.population_imputation_target
 
-        if InputOutput.args.override_population_target:
-            population_imputation_target = True
-
         self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, self.current_haplotypes, self.population_imputation_target, nLoci, self.map_length)
 
 
@@ -231,7 +228,8 @@ class AlphaImputeIndividual(Pedigree.Individual):
         new_ind = AlphaImputeIndividual(self.idx + "_reverse", self.idn)
         new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
         new_ind.map_length = self.map_length
-
+        new_ind.population_imputation_target = self.population_imputation_target
+        
         if self.haplotypes is not None:
             new_ind.haplotypes = (np.ascontiguousarray(np.flip(self.haplotypes[0])), np.ascontiguousarray(np.flip(self.haplotypes[1])))
         else:
