@@ -12,6 +12,7 @@ from collections import OrderedDict
 import numpy as np
 import hashlib
 from . import Imputation
+from ..tinyhouse import InputOutput
 import math
 
 try:
@@ -41,7 +42,8 @@ class AlphaImputeIndividual(Pedigree.Individual):
         self.masked_dam = None
 
         seed = self.get_random_seed()
-        self.random_generator = np.random.RandomState(seed)
+        # self.random_generator = np.random.RandomState(seed)
+        self.random_generator = np.random.default_rng(seed) # Moving over to the newer generator.
         self.map_length = None
 
 
@@ -217,12 +219,18 @@ class AlphaImputeIndividual(Pedigree.Individual):
             backward = self.backward_information
         self.current_haplotypes = (self.haplotypes[0].copy(), self.haplotypes[1].copy())
 
+        population_imputation_target = self.population_imputation_target
+
+        if InputOutput.args.override_population_target:
+            population_imputation_target = True
+
         self.phasing_view = jit_Phasing_Individual(self.idn, self.genotypes, self.haplotypes, backward, self.current_haplotypes, self.population_imputation_target, nLoci, self.map_length)
 
 
     def reverse_individual(self):
         new_ind = AlphaImputeIndividual(self.idx + "_reverse", self.idn)
         new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
+        new_ind.map_length = self.map_length
 
         if self.haplotypes is not None:
             new_ind.haplotypes = (np.ascontiguousarray(np.flip(self.haplotypes[0])), np.ascontiguousarray(np.flip(self.haplotypes[1])))
@@ -360,7 +368,7 @@ example_phasing_individual = None
 def get_example_phasing_individual():
     global example_phasing_individual
     if example_phasing_individual is None:
-        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), np.full((4, 2), 0, dtype = np.float32), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), True, 2)
+        example_phasing_individual = jit_Phasing_Individual(-1, np.array([0, 1], dtype = np.int8), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), np.full((4, 2), 0, dtype = np.float32), (np.array([0, 1], dtype = np.int8), np.array([0,1], dtype = np.int8)), True, 2, 1)
     return example_phasing_individual
 
 spec = OrderedDict()

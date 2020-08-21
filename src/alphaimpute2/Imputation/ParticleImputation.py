@@ -51,7 +51,7 @@ def multi_threaded_apply(func, individuals, library, n_particles, map_length):
 
     if InputOutput.args.maxthreads <= 1:
         for ind in individuals:
-            func(ind, library, n_particles)
+            func(ind, library, n_particles, map_length)
 
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=InputOutput.args.maxthreads) as executor:

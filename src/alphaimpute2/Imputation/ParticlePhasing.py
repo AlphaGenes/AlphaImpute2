@@ -97,10 +97,10 @@ def create_library_and_phase(individuals, cycles, args) :
     # Set haplotypes on the last sample.
 
     for i in range(len(cycles) - 1):
-        phase_round(individuals, set_haplotypes = False, n_samples = cycles[i], args)
+        phase_round(individuals, set_haplotypes = False, n_samples = cycles[i], args = args)
 
     # Run last round of phasing.    
-    phase_round(individuals, set_haplotypes = True, n_samples = cycles[-1], args)
+    phase_round(individuals, set_haplotypes = True, n_samples = cycles[-1], args = args)
 
 
 @time_func("Phasing round")
@@ -112,7 +112,7 @@ def phase_round(individuals, set_haplotypes = False, n_samples = 40, args = None
 
     if InputOutput.args.maxthreads <= 1:
         for individual in individuals:
-            phase_individual(individual, bw_library, set_haplotypes = set_haplotypes, n_samples = n_samples, args.length*args.phasing_length_modifier)
+            phase_individual(individual, bw_library, set_haplotypes = set_haplotypes, n_samples = n_samples, map_length = args.length*args.phasing_length_modifier)
 
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=InputOutput.args.maxthreads) as executor:
