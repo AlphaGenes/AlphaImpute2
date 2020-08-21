@@ -47,6 +47,10 @@ Program Options
 
 AlphaImpute2 takes in a number of command line arguments to control the program's behavior. To view a list of arguments, run AlphaImpute2 without any command line arguments, i.e. ``AlphaImpute2`` or ``AlphaImpute2 -h``. 
 
+There are four primary ways to run AlphaImpute2 which differ on whether population or pedigree imputation should be run. The default option is to run both population and pedigree imputation in an integrated algorithm. This will be the option most users will want if they have access to pedigree data on a majority of individuals. The second option is to run population imputation only with the ``-pop_only`` flag. This option should be used if no pedigree data is availible. The third option is to run only pedigree based imputation using the ``-ped_only`` flag. This option is not recommended for general use cases, but may be applicable if (1) there are more than five generations of pedigree data, (2) imputation is done only on the most recent generations, (3) speed is a priority.
+
+The fourth option is to run AlphaImpute2 with the ``-cluster_only``. This option performs AlphaImpute2's array clustering algorithm and outputs the results of the clustering. This option may be useful for debugging how individuals are clustered.
+
 
 Core Arguments 
 --------------
@@ -56,7 +60,7 @@ Core Arguments
   Core arguments
     -out prefix              The output file prefix.
 
-The ``-out`` argument gives the output file prefix for where the outputs of AlphaImpute2 should be stored. By default, AlphaImpute2 outputs a file with imputed genotypes, ``prefix.genotypes``, phased haplotypes ``prefix.phase``, and genotype dosages ``prefix.dosages``. For more information on which files are created, see "Output Arguments", below.
+The ``-out`` argument gives the output file prefix for where the outputs of AlphaImpute2 should be stored. By default, AlphaImpute2 outputs a file with imputed genotypes, ``prefix.genotypes`` and phased haplotypes ``prefix.phase``. For more information on which files are created, see "Output Arguments", below.
 
 Input Arguments 
 ----------------
@@ -110,7 +114,7 @@ Output Arguments
 
 The order in which individuals are output can be changed by using the ``writekey`` option. This option changes the order in which individuals are written out to the order in which they were observed in the corresponding file. The ```-onlykeyed`` option suppresses the output of dummy individuals.
 
-The parameter ``-iothreads`` controls the number of threads/processes used by AlphaImpute2. AlphaImpute2 uses additional threads to parse and format input and output files. Setting this option to a value greater than 1 is only recommended for very large files (i.e. >10,000 individuals).
+The parameter ``-iothreads`` controls the number of threads/processes used by AlphaImpute2. AlphaImpute2 uses additional threads to parse and format the input and output files. Setting this option to a value greater than 1 is only recommended for large files (i.e. >10,000 individuals).
 
 
 Imputation arguments: 
@@ -129,9 +133,16 @@ Imputation arguments:
                             only.
       -cluster_only         Flag to just cluster individuals into marker arrays
                             and write out results.
+      -length LENGTH        Estimated map length for pedigree and population
+                            imputation in Morgans. Default: 1 (100cM).
 
-These give various options to run imputation.
+These options control how imputation is run. The ``-maxthreads`` argument can be used to allow multiple threads to be used for imputation. This argument can be set seperately from the ``-iothreads`` argument (above). The speed gains of using multiple threads is close to linear for population imputation, but is more limited for pedigree based imputation.
 
+The ``-length`` argument controls the assumed length of the chromosome (in Morgans). We have found that imputation is largely insensitive to this value so keeping this value at its default of 1, should work in many cases. There are additional options to control the assumed recombination used for population based imputation (below).
+
+The binary output option flags the program to write out files in plink binary format. Binary plink files require the package ``alphaplinkpython``. This can be installed via ``pip`` but is only stable for Linux. A fake map file is generated.
+
+The remaining options control how AlphaImpute2 is run.
 
 Pedigree imputation options 
 -----------------------------
@@ -144,57 +155,69 @@ Pedigree imputation options
                             Default: 0.1 (best guess genotypes).
 
 
-Options for pedigree based imputation
+These options control how pedigree imputation is run for either the pedigree only algorithm, or the combined algorithm. ``-cycles`` controls the number of cycles of peeling that are perfromed. An additional very-high-confidence cycle is always performed in addition to the cycles specific here. We recommend using the default value of 4 cycles. Additional cycles seem to provide limited benifit in most pedigrees. 
 
+The ``-final_peeling_threshold`` argument gives the genotype calling threshold for the final round of peeling. This applies to both the pedigree only or the combined algorithm. We recommend either using best guess genotypes (default with a cutoff of 0.1) or high confidence genotypes (with a cutoff of 0.95). Values that cannot be imputed with high enough confidence will be coded as missing.
 
 
 Population imputation options 
 ---------------------------------
 ::
 
-    Population imputation options:
-      -n_phasing_cycles N_PHASING_CYCLES
-                            Number of phasing cycles. Default: 5
-      -n_phasing_particles N_PHASING_PARTICLES
-                            Number of phasing particles. Defualt: 40.
-      -n_imputation_particles N_IMPUTATION_PARTICLES
-                            Number of imputation particles. Defualt: 100.
-      -hd_threshold HD_THRESHOLD
-                            Percentage of non-missing markers to be classified as
-                            high-density when building the haplotype library.
-                            Default: 0.95.
-      -min_chip MIN_CHIP    Minimum number of individuals on an inferred low-
-                            density chip for it to be considered a low-density
-                            chip. Default: 0.05
+  Population imputation options:
+    -n_phasing_cycles N_PHASING_CYCLES
+                          Number of phasing cycles. Default: 5
+    -n_phasing_particles N_PHASING_PARTICLES
+                          Number of phasing particles. Defualt: 40.
+    -n_imputation_particles N_IMPUTATION_PARTICLES
+                          Number of imputation particles. Defualt: 100.
+    -hd_threshold HD_THRESHOLD
+                          Percentage of non-missing markers for an individual be
+                          classified as high-density when building the haplotype
+                          library. Default: 0.95.
+    -min_chip MIN_CHIP    Minimum number of individuals on an inferred low-
+                          density chip for it to be considered a low-density
+                          chip. Default: 0.05
+    -phasing_loci_inclusion_threshold PHASING_LOCI_INCLUSION_THRESHOLD
+                          Percentage of non-missing markers per loci for it to
+                          be included on a chip for imputation. Default: 0.9.
+    -imputation_length_modifier IMPUTATION_LENGTH_MODIFIER
+                          Increases the effective map length of the chip for
+                          population imputation by this amount. Default: 1.
+    -phasing_length_modifier PHASING_LENGTH_MODIFIER
+                          Increases the effective map length of the chip for
+                          Phasing imputation by this amount. Default: 5.
+    -phasing_consensus_window_size PHASING_CONSENSUS_WINDOW_SIZE
+                          Number of markers used to evaluate haplotypes when
+                          creating a consensus haplotype. Default: 50.
 
+These options control how population imputation is run. This algorithm uses a particle-based imputation approach where a number of particles are used to explore genotype combinations with high posterior probability. Increasing the number of particles can increase accuracy. USe the options, ``-n_phasing_particles`` and ``n_imputation_particles`` to change the number of particles run for phasing and imputation.
 
-Options for population based imputation
+AlphaImpute2 uses a number of rounds of phasing in order to iteratively build a haplotype reference panel from the observed data. The argument ``-n_phasing_cycles`` controls the number of rounds that are used for phasing. In pilot testing we have found that the default value of 5 cycles tends to give good accuracy. Additional accuracy may be possible by slightly increasing this value.
+
+To perfrom phasing and imputation, AlphaImpute2 selects high-density individuals to form the haplotype reference panel. ``-hd_threshold`` gives the percentage of non-missing markers the individual needs to carry to be included in the high-density reference panel.
+
+Similar to ``-length`` the ``-imputation_length_modifier`` and ``-phasing_length_modifier`` control the assumed chromosome length for phasing and imputation. These values are applied multiplicatively to the ``-length`` option. We have found that imputation accuracy is not very sensitive to these values and recommend setting them to their default value.
+
+When AlphaImpute2 is run, multiple particles are merged based on the particle's score in a window centered around each marker. ``phasing_consensus_window_size`` controls the size of the window. Increasing this value can increase imputation accuracy if the low-density panel is very sparse compared to the high-density panel.
 
 
 Joint imputation options 
 ---------------------------------
 ::
 
-    Joint imputation options:
-      -chip_threshold CHIP_THRESHOLD
-                            Proportion more high density markers parents need to
-                            be used over population imputation. Default: 0.95
-      -final_peeling_threshold_for_phasing FINAL_PEELING_THRESHOLD_FOR_PHASING
-                            Genotype calling threshold for first round of peeling
-                            before phasing. This value should be conservative..
-                            Default: 0.9.
-      -integrated_decision_rule INTEGRATED_DECISION_RULE
-                            Decision rule to use when determining whether to use
-                            population or pedigree imputation. Options:
-                            individual, balanced, parents. Default: individual
-      -joint_type JOINT_TYPE
-                            Decision rule to use when determining which joint
-                            option to use. Options: integrated, pedigree. Default:
-                            pedigree
+  Joint imputation options:
+    -chip_threshold CHIP_THRESHOLD
+                          Proportion more high density markers parents need to
+                          be used over population imputation. Default: 0.95
+    -final_peeling_threshold_for_phasing FINAL_PEELING_THRESHOLD_FOR_PHASING
+                          Genotype calling threshold for first round of peeling
+                          before phasing. This value should be conservative..
+                          Default: 0.9.
 
+These options control how population and pedigree imputation are combined. As part of the combined algorithm, AlphaImpute2 detects a small number of "pseudo-founders" to impute using the population imputation algorithm. These "pseudo-founders" are selected by finding individuals with higher genotyping densities than their parents. AlphaImpute2 tries to be conservative in which individuals are selected as a "pseudo-founder" and the ``-chip_threshold`` parameter tells algorithm how many more non-missing markers the individuals needs compared to their parents to be considered a "pseudo-founder".
 
-Options for running both pedigree and population imputation together.
-
+Similar to the ``-final_peeling_threshold`` argument, the ``-final_peeling_threshold_for_phasing`` argument gives the final peeling threshold for the initial round of pedigree imputation in the combined algorithm. 
 
 Input file formats
 ~~~~~~~~~~~~~~~~~~
@@ -223,27 +246,43 @@ Example: ::
   id3 id1 id2
   id4 id1 id2
 
+Phase file
+-----------
+
+The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype, and the second line will provide information on the maternal haplotype.
+
+Example: ::
+
+  id1 0 1 9 0 # Maternal haplotype
+  id1 0 1 9 0 # Paternal haplotype
+  id2 1 1 1 0
+  id2 0 0 0 1
+  id3 1 0 1 0
+  id3 1 0 1 0 
+  id4 0 1 0 0
+  id4 0 1 1 0
+
+  
 Binary plink file
 -----------------
 
 AlphaImpute2 supports the use of binary plink files using the package ``AlphaPlinkPython``. AlphaImpute2 will use the pedigree supplied by the ``.fam`` file if a pedigree file is not supplied. Otherwise the pedigree file will be used and the ``.fam`` file will be ignored. 
 
 
-Map file 
------------------
+Output file formats
+~~~~~~~~~~~~~~~~~~~
 
-The map file gives the chromosome number and the marker name and the base pair position for each marker in two columns. AlphaImpute2 needs to be run with all of the markers on the same chromosome. 
+Genotype file 
+-------------
+
+Genotype files contain the input genotypes for each individual. The first value in each line is the individual's id. The remaining values are the genotypes of the individual at each locus, either 0, 1, or 2 (or 9 if missing). The following examples gives the genotypes for four individuals genotyped on four markers each.
 
 Example: ::
 
-  1 snp_a 12483939
-  1 snp_b 192152913
-  1 snp_c 65429279
-  1 snp_d 107421759
-
-
-Output file formats
-~~~~~~~~~~~~~~~~~~~
+  id1 0 2 9 0 
+  id2 1 1 1 1 
+  id3 2 0 2 0 
+  id4 0 2 1 0
 
 Phase file
 -----------

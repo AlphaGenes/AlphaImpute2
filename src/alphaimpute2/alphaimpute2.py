@@ -59,14 +59,13 @@ def getArgs() :
     population_parser.add_argument('-imputation_length_modifier', default=1, required=False, type=float, help='Increases the effective map length of the chip for population imputation by this amount. Default: 1.')
     population_parser.add_argument('-phasing_length_modifier', default=5, required=False, type=float, help='Increases the effective map length of the chip for Phasing imputation by this amount. Default: 5.')
     population_parser.add_argument('-phasing_consensus_window_size', default=50, required=False, type=int, help='Number of markers used to evaluate haplotypes when creating a consensus haplotype. Default: 50.')
-    population_parser.add_argument('-override_population_target', action='store_true', required=False, help='Flag to always use population imputation on HD individuals.')
     
 
     integrated_parser = parser.add_argument_group("Joint imputation options") 
     integrated_parser.add_argument('-chip_threshold',default=0.95, required=False, type=float, help='Proportion more high density markers parents need to be used over population imputation. Default: 0.95')
     integrated_parser.add_argument('-final_peeling_threshold_for_phasing',default=0.9, required=False, type=float, help='Genotype calling threshold for first round of peeling before phasing. This value should be conservative.. Default: 0.9.')
-    integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help='Flag to use pedigree-phased HD individuals as the haplotype reference library. This option decreases runtime at the cost of accuracy')
-    integrated_parser.add_argument('-prioritze_individual', action='store_true', required=False, help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
+    integrated_parser.add_argument('-lazy_phasing', action='store_true', required=False, help = argparse.SUPPRESS) #help='Flag to use pedigree-phased HD individuals as the haplotype reference library. This option decreases runtime at the cost of accuracy')
+    integrated_parser.add_argument('-prioritze_individual', action='store_true', required=False, help = argparse.SUPPRESS) # help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
     
     return InputOutput.parseArgs("AlphaImpute", parser)
 
