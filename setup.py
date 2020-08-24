@@ -22,7 +22,7 @@ import sysconfig
 
 setup(
     name="AlphaImpute2",
-    version="0.0.1",
+    version="0.0.2",
     author="Andrew Whalen",
     author_email="awhalen@roslin.ed.ac.uk",
     description="An imputation software for massive livestock populations.",
@@ -42,7 +42,7 @@ setup(
         ],
     },
     install_requires=[
-        'numpy',
+        'numpy>=1.19',
         'numba>=0.49.0'
     ]
 )
