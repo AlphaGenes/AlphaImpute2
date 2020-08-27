@@ -240,7 +240,7 @@ def write_out_data(pedigree, args):
     else:
         pedigree.writeGenotypes(args.out + ".genotypes")
         if args.phase_output:
-            pedigree.writeGenotypes(args.out + ".haplotypes")
+            pedigree.writePhase(args.out + ".haplotypes")
 
 
 @time_func("Full Program Run")
