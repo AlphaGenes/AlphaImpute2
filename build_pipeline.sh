@@ -28,5 +28,9 @@ mkdir $target
 cp dist/* $target
 cp docs/build/latex/AlphaImpute2.pdf $target
 cp -r example $target
+
+cp MIT_License.txt $target
+
+
 zip -r $target.zip $target
 

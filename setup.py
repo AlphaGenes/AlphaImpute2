@@ -29,6 +29,7 @@ setup(
     long_description="An imputation software for massive livestock populations.",
     long_description_content_type="text/markdown",
     url="",
+    license="MIT license",
 
     packages=['alphaimpute2', 'alphaimpute2.tinyhouse','alphaimpute2.Imputation'],
     package_dir={'': 'src'},
