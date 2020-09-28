@@ -609,7 +609,14 @@ class jit_Peeling_Individual(object):
             count = 0
             for j in range(4):
                 count += mat[j, i]
-            # if count == 0:
+            
+            if count == 0:
+                # If phase and genotype disagree, set to missing.
+                mat[0,i] = 1
+                mat[1,i] = 1
+                mat[2,i] = 1
+                mat[3,i] = 1
+                count = 4
             #     print(g, self.haplotypes[0][i], self.haplotypes[1][i])
             for j in range(4):
                 mat[j, i] = mat[j, i]/count*(1-e) + e/4
