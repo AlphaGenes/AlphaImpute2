@@ -22,7 +22,7 @@ import sysconfig
 
 setup(
     name="AlphaImpute2",
-    version="0.0.2",
+    version="0.0.3",
     author="Andrew Whalen",
     author_email="awhalen@roslin.ed.ac.uk",
     description="An imputation software for massive livestock populations.",
