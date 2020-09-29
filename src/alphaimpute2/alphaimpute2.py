@@ -10,6 +10,16 @@ from .Imputation import ArrayClustering
 
 from .tinyhouse.Utils import time_func
 
+try:
+    from . import version
+    version_verion = version.version
+    version_commit = version.commit
+    version_date = version.date
+except:
+    version_verion = None
+    version_commit = None
+    version_date = None
+
 import argparse
 import numpy as np
 
@@ -245,7 +255,7 @@ def write_out_data(pedigree, args):
 
 @time_func("Full Program Run")
 def main():
-    InputOutput.print_boilerplate("AlphaImpute2", "v0.0.1")
+    InputOutput.print_boilerplate("AlphaImpute2", version_verion, version_commit, version_date)
     args = getArgs()
 
     InputOutput.setNumbaSeeds(12345)

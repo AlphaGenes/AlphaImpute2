@@ -15,7 +15,7 @@ python setup.py bdist_wheel
 
 if [ $command == "install" ] ; then
     pip uninstall AlphaImpute2 -y
-    pip install dist/AlphaImpute2-0.0.1-py3-none-any.whl
+    pip install dist/AlphaImpute2-0.0.3-py3-none-any.whl
 fi
 
 #Compile manual
@@ -30,6 +30,17 @@ cp docs/build/latex/AlphaImpute2.pdf $target
 cp -r example $target
 
 cp MIT_License.txt $target
+
+
+version=`git describe --tags --abbrev=0`
+commit=`git rev-parse --short HEAD`
+date=$(date '+%d-%m-%Y')
+
+
+echo verion = \"$version\" > src/alphaimpute2/version.py
+echo commit = \"$commit\" >> src/alphaimpute2/version.py
+echo date = \"$date\" >> src/alphaimpute2/version.py
+
 
 
 zip -r $target.zip $target
