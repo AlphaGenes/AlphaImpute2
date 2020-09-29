@@ -10,15 +10,17 @@ from .Imputation import ArrayClustering
 
 from .tinyhouse.Utils import time_func
 
-try:
-    from . import version
-    version_verion = version.version
-    version_commit = version.commit
-    version_date = version.date
-except:
-    version_verion = None
-    version_commit = None
-    version_date = None
+# try:
+from .Imputation import version
+version_verion = version.version
+version_commit = version.commit
+version_date = version.date
+
+
+# except:
+#     version_verion = None
+#     version_commit = None
+#     version_date = None
 
 import argparse
 import numpy as np

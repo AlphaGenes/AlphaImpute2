@@ -36,10 +36,10 @@ version=`git describe --tags --abbrev=0`
 commit=`git rev-parse --short HEAD`
 date=$(date '+%d-%m-%Y')
 
-
-echo verion = \"$version\" > src/alphaimpute2/version.py
-echo commit = \"$commit\" >> src/alphaimpute2/version.py
-echo date = \"$date\" >> src/alphaimpute2/version.py
+rm src/alphaimpute2/version.py
+echo version = \"$version\" > src/alphaimpute2/Imputation/version.py
+echo commit = \"$commit\" >> src/alphaimpute2/Imputation/version.py
+echo date = \"$date\" >> src/alphaimpute2/Imputation/version.py
 
 
 
