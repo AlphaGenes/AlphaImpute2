@@ -4,7 +4,8 @@ import random
 import concurrent.futures
 
 from numba.typed import List
-from numba import njit, jit, jitclass, prange
+from numba import njit, jit, prange
+from numba.experimental import jitclass
 
 from collections import OrderedDict
 from itertools import repeat

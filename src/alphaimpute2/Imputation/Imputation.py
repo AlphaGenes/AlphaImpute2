@@ -1,5 +1,6 @@
 import numba
-from numba import jit, int8, int32, boolean, jitclass, float32, int64
+from numba import jit, int8, int32, boolean, float32, int64
+from numba.experimental import jitclass
 import numpy as np
 
 
