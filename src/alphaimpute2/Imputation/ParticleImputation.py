@@ -5,7 +5,10 @@ import concurrent.futures
 
 from numba.typed import List
 from numba import njit, jit, prange
-from numba.experimental import jitclass
+try:
+    from numba.experimental import jitclass
+except ModuleNotFoundError:
+    from numba import jitclass
 
 from collections import OrderedDict
 from itertools import repeat
