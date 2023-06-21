@@ -3,7 +3,7 @@
 from setuptools import setup
 
 from setuptools import Extension, find_packages
-import numpy
+# import numpy
 import os
 import glob
 from sys import platform
