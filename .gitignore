@@ -6,3 +6,6 @@ __pycache__/
 *.py[cod]
 *.DS_Store
 *.egg-info/
+example/outputs
+build
+AlphaImpute2.zip
