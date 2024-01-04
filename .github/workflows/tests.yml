@@ -1,0 +1,48 @@
+name: Evaluate code syntax and correctness
+on: [push, pull_request]
+
+jobs:
+    pre-commit_and_pytest:
+        name: Run pre-commit and pytest
+        strategy:
+          matrix:
+            os: [ubuntu-latest, Windows-latest, macos-latest]
+        runs-on: ${{ matrix.os }}
+        permissions:
+            contents: read
+        
+        steps:
+            - uses: actions/checkout@v3
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                python-version: "3.11.x"
+            
+            - uses: pre-commit/action@v3.0.0
+              name: Run pre-commit
+
+            - name: Install pypa/build
+              run: >-
+                python3 -m
+                pip install
+                --upgrade 
+                build
+            
+            - name: Initialize submodules
+              run: |
+                  git submodule update --init
+  
+            - name: Build SDist and wheel
+              run: python3 -m build
+
+            - name: Install AlphaPeel
+              run: pip install dist/AlphaPeel-1.1.3-py3-none-any.whl
+
+            - name: Install pytest
+              run: |
+                pip install pytest
+                pip install pytest-benchmark
+            
+            - name: Run pytest
+              run: |
+                pytest
