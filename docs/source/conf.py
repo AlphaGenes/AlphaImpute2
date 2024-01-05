@@ -17,9 +17,9 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'AlphaImpute2'
-copyright = '2020, Andrew Whalen'
-author = 'Andrew Whalen'
+project = "AlphaImpute2"
+copyright = "2020, Andrew Whalen"
+author = "Andrew Whalen"
 
 
 # -- General configuration ---------------------------------------------------
@@ -27,11 +27,10 @@ author = 'Andrew Whalen'
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = [
-]
+extensions = []
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
@@ -44,29 +43,25 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'alabaster'
+html_theme = "alabaster"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = ["_static"]
 
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     #
     # 'papersize': 'letterpaper',
-
     # The font size ('10pt', '11pt' or '12pt').
     #
     # 'pointsize': '10pt',
-
     # Additional stuff for the LaTeX preamble.
     #
     # 'preamble': '',
-
     # Latex figure (float) alignment
     #
     # 'figure_align': 'htbp',
-    'extraclassoptions': 'openany,oneside'
-
+    "extraclassoptions": "openany,oneside"
 }
