@@ -2,13 +2,7 @@
 
 from setuptools import setup
 
-from setuptools import Extension, find_packages
-# import numpy
-import os
-import glob
-from sys import platform
-import sys
-import sysconfig
+
 # py_modules = ['alphaimpute2']
 
 # py_modules += [os.path.join('src','General', 'InputOutput')]
@@ -30,20 +24,13 @@ setup(
     long_description_content_type="text/markdown",
     url="",
     license="MIT license",
-
-    packages=['alphaimpute2', 'alphaimpute2.tinyhouse','alphaimpute2.Imputation'],
-    package_dir={'': 'src'},
-
+    packages=["alphaimpute2", "alphaimpute2.tinyhouse", "alphaimpute2.Imputation"],
+    package_dir={"": "src"},
     classifiers=[
         "Programming Language :: Python :: 3",
     ],
-    entry_points = {
-    'console_scripts': [
-        'AlphaImpute2=alphaimpute2.alphaimpute2:main'
-        ],
+    entry_points={
+        "console_scripts": ["AlphaImpute2=alphaimpute2.alphaimpute2:main"],
     },
-    install_requires=[
-        'numpy>=1.19',
-        'numba>=0.49.0'
-    ]
+    install_requires=["numpy>=1.19", "numba>=0.49.0"],
 )
