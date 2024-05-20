@@ -59,6 +59,10 @@ class BurrowsWheelerLibrary:
     def setup_library(self, loci=None, create_reverse_library=False, create_a=False):
         self.removeMissingValues()
         self.haplotypes = np.array(self.haplotypes)
+
+        if self.haplotypes.size == 0:
+            return
+
         if loci is not None:
             bw_loci = np.array(loci, dtype=np.int64)
             sub_library = self.haplotypes[:, bw_loci]
