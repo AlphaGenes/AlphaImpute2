@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "AlphaImpute2"
+version = "0.0.3"
+authors = [
+  { name="Andrew Whalen", email="awhalen@roslin.ed.ac.uk" },
+]
+description = "An imputation software for massive livestock populations."
+# readme corresponds to the long_description
+# "*.md" specifies the long_description_content_type
+readme = "README.md"
+license = {file = "MIT_License.txt"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+# correspond to install_requires
+dependencies = [
+    "numpy>=1.19",
+    "numba>=0.49.0"
+]
+
+[project.scripts]
+# correspond to entry_points
+AlphaImpute2 = "alphaimpute2.alphaimpute2:main"
+
+[project.urls]
+"Homepage" = "https://github.com/AlphaGenes/AlphaImpute2"
+"Bug Tracker" = "https://github.com/AlphaGenes/AlphaImpute2/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["alphaimpute2", "alphaimpute2.tinyhouse", "alphaimpute2.Imputation"]
