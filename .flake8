@@ -1,0 +1,8 @@
+[flake8]
+# Black by its default setting the maximum length to 88
+max-line-length = 88
+extend-ignore = 
+    # also the Black's default, whitespace before ':'
+    E203,
+    # this is for the line length, all the lines too long are comments now
+    E501
