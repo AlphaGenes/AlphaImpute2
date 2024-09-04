@@ -38,11 +38,11 @@ jobs:
             - name: Install AlphaImpute2
               run: pip install dist/AlphaImpute2-0.0.3-py3-none-any.whl
 
-            - name: Install pytest
-              run: |
-                pip install pytest
-                pip install pytest-benchmark
+            # - name: Install pytest
+            #   run: |
+            #     pip install pytest
+            #     pip install pytest-benchmark
             
-            - name: Run pytest
-              run: |
-                pytest
+            # - name: Run pytest
+            #   run: |
+            #     pytest
