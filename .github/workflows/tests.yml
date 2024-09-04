@@ -36,7 +36,7 @@ jobs:
               run: python3 -m build
 
             - name: Install AlphaPeel
-              run: pip install dist/AlphaPeel-1.1.3-py3-none-any.whl
+              run: pip install dist/AlphaPeel-0.0.3-py3-none-any.whl
 
             - name: Install pytest
               run: |
