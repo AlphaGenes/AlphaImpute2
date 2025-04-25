@@ -533,7 +533,7 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
         if (
             ind.genotypes[i] == 1
             and ind.haplotypes[0][i] == 9
-            and ind.haplotypes[0][i] == 9
+            and ind.haplotypes[1][i] == 9
         ):
             if sirehap0 != 9 and sirehap1 != 9 and damhap0 != 9 and damhap1 != 9:
                 # This is ugly, but don't have a better solution.
