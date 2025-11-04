@@ -445,6 +445,7 @@ spec["original_haplotypes"] = numba.typeof(
 spec["segregation"] = numba.typeof(
     (np.array([0, 1], dtype=np.float32), np.array([0], dtype=np.float32))
 )
+spec["out_segregation"] = optional(float32[:, :])
 
 spec["newPosterior"] = optional(numba.typeof([np.full((4, 100), 0, dtype=np.float32)]))
 
@@ -481,6 +482,8 @@ class jit_Peeling_Individual(object):
             np.full(nLoci, 0.5, dtype=np.float32),
             np.full(nLoci, 0.5, dtype=np.float32),
         )
+
+        self.out_segregation = np.full((4, nLoci), 0.25, dtype=np.float32)
 
         # Create the posterior terms.
         self.has_offspring = has_offspring
@@ -758,6 +761,12 @@ class jit_Peeling_Individual(object):
             else:
                 self.haplotypes[1][i] = 9
 
+            if self.genotypes[i] == 1 and 18 > (self.haplotypes[0][i] + self.haplotypes[1][i]) > 1:
+                if self.haplotypes[0][i] == 9:
+                    self.haplotypes[0][i] = 1 - self.haplotypes[1][i]
+                elif self.haplotypes[1][i] == 9:
+                    self.haplotypes[1][i] = 1 - self.haplotypes[0][i]
+                    
 
 @jit(nopython=True, nogil=True)
 def norm_1D(mat):

@@ -27,31 +27,36 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
         ld_individuals, args.phasing_loci_inclusion_threshold
     )
 
-    print("Number of individuals:", len(ld_individuals))
-    print(f"Number of markers: {len(forward_loci)}")
+    if forward_loci is not None:
+        print("Number of individuals:", len(ld_individuals))
+        print(f"Number of markers: {len(forward_loci)}")
 
-    reverse_library = ParticlePhasing.get_reference_library(
-        haplotype_library, reverse=True
-    )
-    reverse_library.setup_library(loci=reverse_loci, create_a=True)
-    multi_threaded_apply(
-        backward_impute_individual,
-        [ind.reverse_individual() for ind in ld_individuals],
-        reverse_library,
-        args.n_imputation_particles,
-        args.length * args.imputation_length_modifier,
-    )
-    reverse_library = None
+        reverse_library = ParticlePhasing.get_reference_library(
+            haplotype_library, reverse=True
+        )
+        reverse_library.setup_library(loci=reverse_loci, create_a=True)
+        multi_threaded_apply(
+            backward_impute_individual,
+            [ind.reverse_individual() for ind in ld_individuals],
+            reverse_library,
+            args.n_imputation_particles,
+            args.length * args.imputation_length_modifier,
+        )
+        reverse_library = None
 
-    forward_library = ParticlePhasing.get_reference_library(haplotype_library)
-    forward_library.setup_library(loci=forward_loci, create_a=True)
-    multi_threaded_apply(
-        forward_impute_individual,
-        ld_individuals,
-        forward_library,
-        args.n_imputation_particles,
-        args.length * args.imputation_length_modifier,
-    )
+        forward_library = ParticlePhasing.get_reference_library(haplotype_library)
+        forward_library.setup_library(loci=forward_loci, create_a=True)
+        multi_threaded_apply(
+            forward_impute_individual,
+            ld_individuals,
+            forward_library,
+            args.n_imputation_particles,
+            args.length * args.imputation_length_modifier,
+        )
+    
+    else:
+        print("Number of individuals:", len(ld_individuals))
+        print("Number of markers: 0 - SKIPPED")
 
 
 def multi_threaded_apply(func, individuals, library, n_particles, map_length):

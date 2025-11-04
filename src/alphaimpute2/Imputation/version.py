@@ -1,3 +1,3 @@
-version = "v0.0.3"
-commit = "1f3ffe9"
-date = "29-09-2020"
+from importlib.metadata import version
+
+version = version("alphaimpute2")

@@ -57,8 +57,8 @@ def runHeuristicPeeling(pedigree, args, final_cutoff=0.3):
         call_genotypes(ind, final_cutoff, args.error)
 
     # Clear peeling view from all individuals to reduce memory impact.
-    for ind in pedigree:
-        ind.peeling_view = None
+    # for ind in pedigree:
+        # ind.peeling_view = None
 
 
 @profile
@@ -128,8 +128,8 @@ def run_integrated_peeling(pedigree, args, final_cutoff=0.3, arrays=None):
         ind.restore_original_genotypes()
 
     # Clear peeling view from all individuals to reduce memory impact.
-    for ind in pedigree:
-        ind.peeling_view = None
+    # for ind in pedigree:
+        # ind.peeling_view = None
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
@@ -510,6 +510,8 @@ def setSegregation(ind, sire, dam):
         pointEstimates, 1.0 / nLoci * ind.map_length
     )  # This is where different map lengths could be added.
 
+    ind.out_segregation = smoothedEstimates.copy()
+
     # Then set the segregation values for the individual.
     ind.segregation[0][:] = smoothedEstimates[2, :] + smoothedEstimates[3, :]
     ind.segregation[1][:] = smoothedEstimates[1, :] + smoothedEstimates[3, :]
@@ -519,7 +521,7 @@ def setSegregation(ind, sire, dam):
 def fillPointEstimates(pointEstimates, ind, sire, dam):
     # Calculate probability of each segregation state conditional on parent's genotype state and own genotypes.
     nLoci = pointEstimates.shape[1]
-    e = 0.01  # Assume 1% genotyping error.
+    e = 0.0001  
     for i in range(nLoci):
         # Let's do sire side.
         # I'm going to assume we've already peeled down.
@@ -739,7 +741,7 @@ def exp_2D_norm(mat, output):
 
 def generateGenoProbs():
     global geno_probs
-    error = 0.01
+    error = 0.0001
     geno_probs[9, 9, 9] = (
         np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32) * (1 - error) + error / 4
     )

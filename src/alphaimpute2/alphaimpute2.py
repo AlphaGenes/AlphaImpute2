@@ -17,14 +17,6 @@ from .tinyhouse.Utils import time_func
 from .Imputation import version
 
 version_verion = version.version
-version_commit = version.commit
-version_date = version.date
-
-
-# except:
-#     version_verion = None
-#     version_commit = None
-#     version_date = None
 
 if not ("profile" in globals()):
 
@@ -64,6 +56,12 @@ def getArgs():
         action="store_true",
         required=False,
         help="Flag to write out the phase information.",
+    )
+    core_impute_parser.add_argument(
+        "-seg_output",
+        action="store_true",
+        required=False,
+        help="Flag to write out the segmentation information.",
     )
 
     core_impute_parser.add_argument(
@@ -405,12 +403,28 @@ def write_out_data(pedigree, args):
         pedigree.writeGenotypes(args.out + ".genotypes")
         if args.phase_output:
             pedigree.writePhase(args.out + ".haplotypes")
+        if args.seg_output:
+            if args.pop_only:
+                print("Population based imputation does not support segregation output, ignore -seg_output flag.")
+            else:
+                write_seg(pedigree, args.out + ".segregation")
 
+
+def write_seg(pedigree, outputFile):
+
+    data_list = []
+    for ind in pedigree:
+        for i in range(4):
+            data_list.append((ind.idx, ind.peeling_view.out_segregation[i, :]))
+    with open(outputFile, "w+") as f:
+        for data_tuple in data_list:
+            idx, data = data_tuple
+            f.write(idx + " " + " ".join(map("{:.4f}".format, data)) + "\n")
 
 @time_func("Full Program Run")
 def main():
     InputOutput.print_boilerplate(
-        "AlphaImpute2", version_verion, version_commit, version_date
+        "AlphaImpute2", version_verion
     )
     args = getArgs()
 
