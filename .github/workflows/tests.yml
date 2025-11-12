@@ -36,7 +36,7 @@ jobs:
               run: python3 -m build
 
             - name: Install AlphaImpute2
-              run: pip install dist/AlphaImpute2-0.0.2-py3-none-any.whl
+              run: pip install dist/alphaimpute2-0.0.2-py3-none-any.whl
 
             # - name: Install pytest
             #   run: |
