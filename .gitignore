@@ -6,3 +6,7 @@ __pycache__/
 *.py[cod]
 *.DS_Store
 *.egg-info/
+build/
+example/outputs
+.env
+tests/functional_tests/outputs

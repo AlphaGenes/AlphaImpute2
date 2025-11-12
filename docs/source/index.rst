@@ -68,22 +68,19 @@ Input Arguments
 ::
 
     Input arguments:
-      -bfile [BFILE [BFILE ...]]
-                            A file in plink (binary) format. Only stable on
-                            Linux).
-      -genotypes [GENOTYPES [GENOTYPES ...]]
+      -bfile [BFILE ...]    A file in plink (binary) format. Only stable on Linux).
+      -genotypes [GENOTYPES ...]
                             A file in AlphaGenes format.
-      -reference [REFERENCE [REFERENCE ...]]
+      -reference [REFERENCE ...]
                             A haplotype reference panel in AlphaGenes format.
-      -seqfile [SEQFILE [SEQFILE ...]]
+      -seqfile [SEQFILE ...]
                             A sequence data file.
-      -pedigree [PEDIGREE [PEDIGREE ...]]
+      -pedigree [PEDIGREE ...]
                             A pedigree file in AlphaGenes format.
-      -phasefile [PHASEFILE [PHASEFILE ...]]
+      -phasefile [PHASEFILE ...]
                             A phase file in AlphaGenes format.
-      -startsnp STARTSNP    The first marker to consider. The first marker in the
-                            file is marker "1".
-      -stopsnp STOPSNP      The last marker to consider.
+      -startsnp STARTSNP    The first marker to consider. The first marker in the file is marker '1'. Default: 1.
+      -stopsnp STOPSNP      The last marker to consider. Default: all markers considered.
       -seed SEED            A random seed to use for debugging.
 
 AlphaImpute2 requires a genotype file and an optional pedigree file to run the analysis.
@@ -93,29 +90,6 @@ AlphaImpute2 supports binary plink files, ``-bfile``, genotype files in the Alph
 Use the ``-startsnp`` and ``-stopsnp`` comands to run the analysis only on a subset of markers.
 
 Binary plink files require the package ``alphaplinkpython``. This can be installed via ``pip`` but is only stable for Linux.
-
-Output Arguments 
-----------------
-::
-
-    Output options:
-      -writekey WRITEKEY    Determines the order in which individuals are ordered
-                            in the output file based on their order in the
-                            corresponding input file. Animals not in the input
-                            file are placed at the end of the file and sorted in
-                            alphanumeric order. These animals can be suppressed
-                            with the "-onlykeyed" option. Options: id, pedigree,
-                            genotypes, sequence, segregation. Defualt: id.
-      -onlykeyed            Flag to suppress the animals who are not present in
-                            the file used with -outputkey. Also suppresses "dummy"
-                            animals.
-      -iothreads IOTHREADS  Number of threads to use for io. Default: 1.
-
-
-The order in which individuals are output can be changed by using the ``writekey`` option. This option changes the order in which individuals are written out to the order in which they were observed in the corresponding file. The ```-onlykeyed`` option suppresses the output of dummy individuals.
-
-The parameter ``-iothreads`` controls the number of threads/processes used by AlphaImpute2. AlphaImpute2 uses additional threads to parse and format the input and output files. Setting this option to a value greater than 1 is only recommended for large files (i.e. >10,000 individuals).
-
 
 Imputation arguments: 
 ------------------------
@@ -127,6 +101,7 @@ Imputation arguments:
       -binaryoutput         Flag to write out the genotypes as a binary plink
                             output.
       -phase_output         Flag to write out the phase information.
+      -seg_output           Flag to write out the segmentation information.
       -pop_only             Flag to run the population based imputation algorithm
                             only.
       -ped_only             Flag to run the pedigree based imputation algorithm

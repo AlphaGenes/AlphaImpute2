@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AlphaImpute2"
-version = "0.0.3"
+version = "0.0.2"
 authors = [
   { name="Andrew Whalen", email="awhalen@roslin.ed.ac.uk" },
 ]
@@ -12,7 +12,7 @@ description = "An imputation software for massive livestock populations."
 # readme corresponds to the long_description
 # "*.md" specifies the long_description_content_type
 readme = "README.md"
-license = {file = "MIT_License.txt"}
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
 ]
@@ -21,6 +21,7 @@ dependencies = [
     "numpy>=1.19",
     "numba>=0.49.0"
 ]
+requires-python = "!= 3.12, !=3.14"
 
 [project.scripts]
 # correspond to entry_points
