@@ -53,7 +53,7 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
             args.n_imputation_particles,
             args.length * args.imputation_length_modifier,
         )
-    
+
     else:
         print("Number of individuals:", len(ld_individuals))
         print("Number of markers: 0 - SKIPPED")

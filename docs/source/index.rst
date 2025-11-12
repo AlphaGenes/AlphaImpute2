@@ -68,22 +68,19 @@ Input Arguments
 ::
 
     Input arguments:
-      -bfile [BFILE [BFILE ...]]
-                            A file in plink (binary) format. Only stable on
-                            Linux).
-      -genotypes [GENOTYPES [GENOTYPES ...]]
+      -bfile [BFILE ...]    A file in plink (binary) format. Only stable on Linux).
+      -genotypes [GENOTYPES ...]
                             A file in AlphaGenes format.
-      -reference [REFERENCE [REFERENCE ...]]
+      -reference [REFERENCE ...]
                             A haplotype reference panel in AlphaGenes format.
-      -seqfile [SEQFILE [SEQFILE ...]]
+      -seqfile [SEQFILE ...]
                             A sequence data file.
-      -pedigree [PEDIGREE [PEDIGREE ...]]
+      -pedigree [PEDIGREE ...]
                             A pedigree file in AlphaGenes format.
-      -phasefile [PHASEFILE [PHASEFILE ...]]
+      -phasefile [PHASEFILE ...]
                             A phase file in AlphaGenes format.
-      -startsnp STARTSNP    The first marker to consider. The first marker in the
-                            file is marker "1".
-      -stopsnp STOPSNP      The last marker to consider.
+      -startsnp STARTSNP    The first marker to consider. The first marker in the file is marker '1'. Default: 1.
+      -stopsnp STOPSNP      The last marker to consider. Default: all markers considered.
       -seed SEED            A random seed to use for debugging.
 
 AlphaImpute2 requires a genotype file and an optional pedigree file to run the analysis.
@@ -127,6 +124,7 @@ Imputation arguments:
       -binaryoutput         Flag to write out the genotypes as a binary plink
                             output.
       -phase_output         Flag to write out the phase information.
+      -seg_output           Flag to write out the segmentation information.
       -pop_only             Flag to run the population based imputation algorithm
                             only.
       -ped_only             Flag to run the pedigree based imputation algorithm

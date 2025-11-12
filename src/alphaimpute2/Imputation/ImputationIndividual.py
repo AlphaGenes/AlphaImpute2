@@ -761,12 +761,15 @@ class jit_Peeling_Individual(object):
             else:
                 self.haplotypes[1][i] = 9
 
-            if self.genotypes[i] == 1 and 18 > (self.haplotypes[0][i] + self.haplotypes[1][i]) > 1:
+            if (
+                self.genotypes[i] == 1
+                and 18 > (self.haplotypes[0][i] + self.haplotypes[1][i]) > 1
+            ):
                 if self.haplotypes[0][i] == 9:
                     self.haplotypes[0][i] = 1 - self.haplotypes[1][i]
                 elif self.haplotypes[1][i] == 9:
                     self.haplotypes[1][i] = 1 - self.haplotypes[0][i]
-                    
+
 
 @jit(nopython=True, nogil=True)
 def norm_1D(mat):

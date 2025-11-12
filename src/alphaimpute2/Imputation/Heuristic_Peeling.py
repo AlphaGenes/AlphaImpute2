@@ -58,7 +58,7 @@ def runHeuristicPeeling(pedigree, args, final_cutoff=0.3):
 
     # Clear peeling view from all individuals to reduce memory impact.
     # for ind in pedigree:
-        # ind.peeling_view = None
+    # ind.peeling_view = None
 
 
 @profile
@@ -129,7 +129,7 @@ def run_integrated_peeling(pedigree, args, final_cutoff=0.3, arrays=None):
 
     # Clear peeling view from all individuals to reduce memory impact.
     # for ind in pedigree:
-        # ind.peeling_view = None
+    # ind.peeling_view = None
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
@@ -521,7 +521,7 @@ def setSegregation(ind, sire, dam):
 def fillPointEstimates(pointEstimates, ind, sire, dam):
     # Calculate probability of each segregation state conditional on parent's genotype state and own genotypes.
     nLoci = pointEstimates.shape[1]
-    e = 0.0001  
+    e = 0.0001
     for i in range(nLoci):
         # Let's do sire side.
         # I'm going to assume we've already peeled down.

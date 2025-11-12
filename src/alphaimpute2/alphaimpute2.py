@@ -405,13 +405,14 @@ def write_out_data(pedigree, args):
             pedigree.writePhase(args.out + ".haplotypes")
         if args.seg_output:
             if args.pop_only:
-                print("Population based imputation does not support segregation output, ignore -seg_output flag.")
+                print(
+                    "Population based imputation does not support segregation output, ignore -seg_output flag."
+                )
             else:
                 write_seg(pedigree, args.out + ".segregation")
 
 
 def write_seg(pedigree, outputFile):
-
     data_list = []
     for ind in pedigree:
         for i in range(4):
@@ -421,11 +422,10 @@ def write_seg(pedigree, outputFile):
             idx, data = data_tuple
             f.write(idx + " " + " ".join(map("{:.4f}".format, data)) + "\n")
 
+
 @time_func("Full Program Run")
 def main():
-    InputOutput.print_boilerplate(
-        "AlphaImpute2", version_verion
-    )
+    InputOutput.print_boilerplate("AlphaImpute2", version_verion)
     args = getArgs()
 
     InputOutput.setNumbaSeeds(12345)
