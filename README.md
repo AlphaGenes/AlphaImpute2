@@ -3,6 +3,17 @@ AlphaImpute2
 
 AlphaImpute2 is a phasing and imputation algorithm for massive livestock populations. The method uses a approximate version of multi-locus iterative peeling for pedigree based imputation, and a novel imputation algorithm that uses the Positional Burrows Wheeler Transform for population imputation. AlphaImpute2 has been successfully used to perform imputation in populations of hundreds of thousands of individuals. AlphaImpute2 was developed by Andrew Whalen, and is currently being supported by Andrew Whalen and Steve Thorn.
 
+User guide
+============
+
+See [https://alphapeel.readthedocs.io/en/latest](https://alphaimpute2.readthedocs.io/en/latest/)
+
+Installation
+============
+
+AlphaImpute2 is available on [PyPI](https://pypi.org/project/AlphaImpute2/): 
+
+    pip install AlphaImpute2
 
 Availability
 ============
