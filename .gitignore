@@ -9,3 +9,4 @@ __pycache__/
 build/
 example/outputs
 .env
+tests/functional_tests/outputs

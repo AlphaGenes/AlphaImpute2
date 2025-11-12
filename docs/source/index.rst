@@ -91,29 +91,6 @@ Use the ``-startsnp`` and ``-stopsnp`` comands to run the analysis only on a sub
 
 Binary plink files require the package ``alphaplinkpython``. This can be installed via ``pip`` but is only stable for Linux.
 
-Output Arguments 
-----------------
-::
-
-    Output options:
-      -writekey WRITEKEY    Determines the order in which individuals are ordered
-                            in the output file based on their order in the
-                            corresponding input file. Animals not in the input
-                            file are placed at the end of the file and sorted in
-                            alphanumeric order. These animals can be suppressed
-                            with the "-onlykeyed" option. Options: id, pedigree,
-                            genotypes, sequence, segregation. Defualt: id.
-      -onlykeyed            Flag to suppress the animals who are not present in
-                            the file used with -writekey. Also suppresses "dummy"
-                            animals.
-      -iothreads IOTHREADS  Number of threads to use for io. Default: 1.
-
-
-The order in which individuals are output can be changed by using the ``writekey`` option. This option changes the order in which individuals are written out to the order in which they were observed in the corresponding file. The ```-onlykeyed`` option suppresses the output of dummy individuals.
-
-The parameter ``-iothreads`` controls the number of threads/processes used by AlphaImpute2. AlphaImpute2 uses additional threads to parse and format the input and output files. Setting this option to a value greater than 1 is only recommended for large files (i.e. >10,000 individuals).
-
-
 Imputation arguments: 
 ------------------------
 ::

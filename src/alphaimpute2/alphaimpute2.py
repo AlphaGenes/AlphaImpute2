@@ -30,7 +30,10 @@ def getArgs():
     core_parser.add_argument(
         "-out", required=True, type=str, help="The output file prefix."
     )
-    InputOutput.addInputFileParser(parser)
+    genotype_parser = parser.add_argument_group("Input arguments")
+    InputOutput.add_arguments_from_dictionary(
+        genotype_parser, InputOutput.get_input_options(), None
+    )
 
     probability_parser = parser.add_argument_group("Probability options")
     InputOutput.add_arguments_from_dictionary(
