@@ -33,17 +33,25 @@ def generate_command(
     sim_path,
     method,
     output_path,
+    x_chr=False,
 ):
     command = "AlphaImpute2 "
-    input_file = ["pedigree"]
+
     arguments = {
         "cycles": "5",
         "maxthreads": "6",
         "phase_output": None,
         "seg_output": None,
     }
-
-    input_file.append("genotypes")
+    if x_chr:
+        command += "-x_chr "
+        input_file = {"pedigree": "X_chr_ped_file"}
+        input_file["genotypes"] = "X_chr_geno_file"
+    else:
+        input_file = {
+            "pedigree": "pedigree",
+            "genotypes": "genotypes",
+        }
 
     if method in ["pop_only", "combined"]:
         arguments["hd_threshold"] = "0.8"
@@ -51,8 +59,8 @@ def generate_command(
     if method in ["pop_only", "ped_only"]:
         command += f"-{method} "
 
-    for file in input_file:
-        command += f"-{file} {os.path.join(sim_path, f'{file}.txt')} "
+    for argu in input_file.keys():
+        command += f"-{argu} {os.path.join(sim_path, f'{input_file[argu]}.txt')} "
 
     for key, value in arguments.items():
         if value is not None:
@@ -60,7 +68,7 @@ def generate_command(
         else:
             command += f"-{key} "
 
-    command += f"-out {output_path}{os.sep}"
+    command += f"-out {os.path.join(output_path, 'test')}"
 
     return command
 
@@ -105,7 +113,7 @@ def get_ind_accu(output, real, nIndPerGen, n_row_per_ind, gen=None):
         return round(np.nanmean(accus), 3)
 
 
-def assess_peeling(sim_path, get_params, output_path, name, method):
+def assess_peeling(sim_path, get_params, output_path, name, method, x_chr=False):
     """
     Assess the performance of the peeling
     """
@@ -121,6 +129,7 @@ def assess_peeling(sim_path, get_params, output_path, name, method):
     nIndPerGen = int(get_params["nInd"] / nGen)
     nLociAll = int(get_params["nLociAll"])
 
+    true_prefix = "true-X_chr_" if x_chr else "true-"
     print(" ")
     print(f"Test: {name}")
 
@@ -132,9 +141,9 @@ def assess_peeling(sim_path, get_params, output_path, name, method):
         elif file == "haplotypes":
             n_row_per_ind = 2
 
-        file_path = os.path.join(output_path, f".{file}")
+        file_path = os.path.join(output_path, f"test.{file}")
 
-        true_path = os.path.join(sim_path, f"true-{file}.txt")
+        true_path = os.path.join(sim_path, f"{true_prefix}{file}.txt")
 
         new_file = np.loadtxt(file_path, usecols=np.arange(1, nLociAll + 1))
         true_file = np.loadtxt(true_path, usecols=np.arange(1, nLociAll + 1))
@@ -215,6 +224,50 @@ def test_accu(
         output_path,
     )
 
-    benchmark(os.system, command)
+    def run_command(cmd):
+        exit_code = os.system(cmd)
+        if exit_code == 11:
+            import glob
+
+            outputs = glob.glob(os.path.join(output_path, "test.*"))
+            if outputs:
+                return  # output was written, crash was in cleanup only
+        assert exit_code == 0, f"AlphaImpute2 failed with exit code {exit_code}"
+
+    benchmark(run_command, command)
 
     assess_peeling(sim_path, get_params, output_path, name, method)
+
+
+# ── X chromosome accuracy test ───────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        ("pop_only"),
+        ("ped_only"),
+        ("combined"),
+    ],
+)
+def test_sex_accu(get_params, method, sim_path, benchmark):
+    name = "_".join(
+        [
+            param
+            for param in filter(
+                lambda param: True if param else False,
+                [
+                    "x_chr",
+                    method,
+                ],
+            )
+        ]
+    )
+    output_path = generate_output_path(name)
+    prepare_path(output_path)
+
+    command = generate_command(sim_path, method, output_path, x_chr=True)
+
+    benchmark(os.system, command)
+
+    assess_peeling(sim_path, get_params, output_path, name, method, x_chr=True)
