@@ -31,8 +31,9 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
         print("Number of individuals:", len(ld_individuals))
         print(f"Number of markers: {len(forward_loci)}")
 
+        x_chr = args.x_chr
         reverse_library = ParticlePhasing.get_reference_library(
-            haplotype_library, reverse=True
+            haplotype_library, reverse=True, x_chr=x_chr
         )
         reverse_library.setup_library(loci=reverse_loci, create_a=True)
         multi_threaded_apply(
@@ -44,7 +45,9 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
         )
         reverse_library = None
 
-        forward_library = ParticlePhasing.get_reference_library(haplotype_library)
+        forward_library = ParticlePhasing.get_reference_library(
+            haplotype_library, x_chr=x_chr
+        )
         forward_library.setup_library(loci=forward_loci, create_a=True)
         multi_threaded_apply(
             forward_impute_individual,

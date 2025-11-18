@@ -44,6 +44,7 @@ Input Arguments
                             A file in AlphaGenes format.
       -pedigree [PEDIGREE ...]
                             A pedigree file in AlphaGenes format.
+      -x_chr                Indicate that input data is for the :ref:`X chromosome <zero_one_two_etc>`.
       -startsnp STARTSNP    The first marker to consider. The first marker in the file is marker '1'. Default: 1.
       -stopsnp STOPSNP      The last marker to consider. Default: all markers considered.
       -seed SEED            A random seed to use for debugging.
@@ -194,19 +195,69 @@ Output file formats
 Genotype file 
 =============
 
-Genotype files contain the input genotypes for each individual. The first value in each line is the individual's id. The remaining values are the genotypes of the individual at each locus, either 0, 1, or 2 (or 9 if missing). The following examples gives the genotypes for four individuals genotyped on four markers each.
+This file has one line with
+*observed genotypes* for each genotyped individual.
+The file does not need to include all individuals present in other files.
+The first value in each line is the individual's ID.
+The remaining values are observed genotypes at each locus.
+Only loci on one chromosome should be provided!
 
-Example: ::
+.. _zero_one_two_etc:
 
-  id1 0 2 9 0 
-  id2 1 1 1 1 
-  id3 2 0 2 0 
+.. note::
+
+    |Software| works with bi-allelic loci with two *alleles*;
+    *reference (major)* allele ``a`` and
+    *alternative (minor)* allele ``A``.
+    The terms major and minor indicates their frequency in a population,
+    but this is not a requirement for |Software|.
+    These alleles are numerically encoded as ``0`` and ``1``, respectively.
+    Combining two alleles in a diploid individual gives three possible *genotypes*:
+    reference homozygote ``a/a``,
+    heterozygote ``a/A`` or ``A/a``, and
+    alternative homozygote ``A/A``.
+    When the origin of alleles that an individual inherited is known,
+    we have four *phased genotypes*: ``aa``, ``aA``, ``Aa``, and ``AA``,
+    where the *paternal allele* is listed first and
+    the *maternal allele* is listed second.
+    These genotypes are numerically encoded as ``0``, ``1``, and ``2``, respectively.
+    Missing alleles and genotypes are numerically encoded as ``9``.
+    The numerical codes are called *allele dosages*, because
+    they represent the number (dose) of alternative alleles.
+
+    When working with the X chromosome:
+    (1) *heterogametic genotypes* (for males in mammals (XY) and for females in birds (ZW))
+    should be coded as:
+    ``0`` (reference allele ``a`` on the X chromosome of the XY genotype),
+    ``1`` (alternative allele ``A`` on the X chromosome of the XY genotype), or
+    ``9`` (missing) and
+    (2) *Homogametic genotypes* (females in mammals (XX) and males in birds (ZZ))
+    should be coded as described above for autosomes
+    (since they have the XX genotype).
+
+Example with four individuals and their genotypes at four loci:
+
+::
+
+  id1 0 2 9 0
+  id2 1 1 1 1
+  id3 2 0 2 0
+  id4 0 2 1 0
+
+Example with four individuals and their X chromosome genotypes at four loci;
+id1 and id3 are males, while id2 and id4 are females:
+
+::
+
+  id1 0 1 9 0
+  id2 1 1 1 1
+  id3 1 0 1 0
   id4 0 2 1 0
 
 Phase file
 ==========
 
-The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype, and the second line will provide information on the maternal haplotype.
+The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype (For the sex chromosome of male individuals, paternal haplotype would be all 9s), and the second line will provide information on the maternal haplotype.
 
 Example: ::
 

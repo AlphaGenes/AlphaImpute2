@@ -350,6 +350,8 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
 
     own_haplotypes = ind.own_haplotypes
     has_own_haplotypes = ind.has_own_haplotypes
+    isXChr = ind.isXChr
+    sex = ind.sex
 
     rec_rate = sample.rec_rate  # Constant.
     calculate_forward_estimates = sample.calculate_forward_estimates
@@ -510,7 +512,15 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
         # calculate_haps_probs(rec_rate, geno_probs, pat_prop, mat_prop, hap_lib_prop)
 
         # NEW START
+        # X chr male in 4×4:
+        #     pat strand is always fixed to allele 0 (hemizygous)
+        #     only mat strand varies
 
+        #     genotype states:
+        #     j=0: pat=0, mat=0  → observed as 0  ✓
+        #     j=1: pat=0, mat=1  → observed as 1  ✓
+        #     j=2: pat=1, mat=0  → IMPOSSIBLE, prob=0
+        #     j=3: pat=1, mat=1  → IMPOSSIBLE, prob=0
         for i in range(4):
             if i == 0:
                 tmp_pat_prob = pat_prop
@@ -529,10 +539,17 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
                 tmp_mat_prob = hap_lib_prop
                 scale = rec_rate * rec_rate
 
-            geno_probs[i, 0] = tmp_pat_prob[0] * tmp_mat_prob[0] * scale
-            geno_probs[i, 1] = tmp_pat_prob[0] * tmp_mat_prob[1] * scale
-            geno_probs[i, 2] = tmp_pat_prob[1] * tmp_mat_prob[0] * scale
-            geno_probs[i, 3] = tmp_pat_prob[1] * tmp_mat_prob[1] * scale
+            if isXChr and sex == 0:
+                # Force pat=0: only j=0 and j=1 are possible
+                geno_probs[i, 0] = tmp_mat_prob[0] * scale  # pat fixed to 0
+                geno_probs[i, 1] = tmp_mat_prob[1] * scale  # pat fixed to 0
+                geno_probs[i, 2] = 0.0  # pat=1 impossible
+                geno_probs[i, 3] = 0.0  # pat=1 impossible
+            else:
+                geno_probs[i, 0] = tmp_pat_prob[0] * tmp_mat_prob[0] * scale
+                geno_probs[i, 1] = tmp_pat_prob[0] * tmp_mat_prob[1] * scale
+                geno_probs[i, 2] = tmp_pat_prob[1] * tmp_mat_prob[0] * scale
+                geno_probs[i, 3] = tmp_pat_prob[1] * tmp_mat_prob[1] * scale
 
         # NEW END
 
@@ -618,14 +635,21 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
         new_score = 0
         if observed_genotype != 9:
             error = True
-            if observed_genotype == 0 and selected_genotype == 0:
-                error = False
-            elif observed_genotype == 1 and (
-                selected_genotype == 1 or selected_genotype == 2
-            ):
-                error = False
-            elif observed_genotype == 2 and selected_genotype == 3:
-                error = False
+            if isXChr and sex == 0:
+                # pat strand forced to 0, so selected_genotype is only 0 or 1
+                if observed_genotype == 0 and selected_genotype == 0:
+                    error = False
+                elif observed_genotype == 1 and selected_genotype == 1:
+                    error = False
+            else:
+                if observed_genotype == 0 and selected_genotype == 0:
+                    error = False
+                elif observed_genotype == 1 and (
+                    selected_genotype == 1 or selected_genotype == 2
+                ):
+                    error = False
+                elif observed_genotype == 2 and selected_genotype == 3:
+                    error = False
 
             if error:
                 new_score = no_match_score
@@ -639,14 +663,21 @@ def haplib_sample_alt(sample, bw_library, ind, random_samples):
         # score += score_from_rec_state(rec_state, rec_score, no_rec_score)
         # NEW START
         new_score = 0
-        if rec_state == 0:
-            new_score = 2 * no_rec_score
+        if isXChr and sex == 0:
+            # For X chr males: only mat recombination matters (rec_state bit 0 = mat rec)
+            if rec_state == 0 or rec_state == 2:  # no mat rec
+                new_score = no_rec_score
+            else:  # rec_state == 1 or 3: mat rec
+                new_score = rec_score
+        else:
+            if rec_state == 0:
+                new_score = 2 * no_rec_score
 
-        if rec_state == 1 or rec_state == 2:
-            new_score = rec_score + no_rec_score  # We search for lowest score
+            if rec_state == 1 or rec_state == 2:
+                new_score = rec_score + no_rec_score  # We search for lowest score
 
-        if rec_state == 3:
-            new_score = 2 * rec_score
+            if rec_state == 3:
+                new_score = 2 * rec_score
 
         score += -new_score
         # NEW END
@@ -1023,6 +1054,33 @@ def weighted_sample_1D(mat):
     return -1
 
 
+@jit(nopython=True, nogil=True)
+def get_xchr_male_haplotype_consensus(samples):
+    # For X chr hemizygous males: consensus is majority vote over the maternal (index 1) haplotype only.
+    nHaps = len(samples)
+    nLoci = len(samples[0].haplotypes[1])
+
+    mat_hap = np.full(nLoci, 9, dtype=np.int8)
+
+    for i in range(nLoci):
+        count0 = 0
+        count1 = 0
+        for j in range(nHaps):
+            val = samples[j].haplotypes[1][i]
+            if val == 0:
+                count0 += 1
+            elif val == 1:
+                count1 += 1
+
+        if count0 > count1:
+            mat_hap[i] = 0
+        elif count1 > 0:
+            mat_hap[i] = 1
+
+    pat_hap = np.full(nLoci, 0, dtype=np.int8)
+    return pat_hap, mat_hap
+
+
 # The following is a bunch of code to handle consensus of multiple samples.
 
 spec = OrderedDict()
@@ -1061,7 +1119,10 @@ class PhasingSampleContainer(object):
             self.samples += [new_sample]
 
     @profile
-    def get_consensus(self, sample_size):
+    def get_consensus(self, sample_size, isXChr, sex):
+        if isXChr and sex == 0:
+            return get_xchr_male_haplotype_consensus(self.samples)
+
         if len(self.samples) == 1:
             return self.samples[0].haplotypes
 

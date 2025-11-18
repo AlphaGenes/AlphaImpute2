@@ -3,17 +3,42 @@ from numba import jit
 import numpy as np
 
 
-def ind_fillInGenotypesFromPhase(ind):
-    fillInGenotypesFromPhase(ind.genotypes, ind.haplotypes[0], ind.haplotypes[1])
+def ind_fillInGenotypesFromPhase(ind, isXChr=False):
+    if isXChr:
+        if ind.sex == 0:
+            fillInGenotypesFromPhase_XYChr(
+                ind.genotypes, ind.haplotypes[0], ind.haplotypes[1]
+            )
+        else:
+            fillInGenotypesFromPhase(
+                ind.genotypes, ind.haplotypes[0], ind.haplotypes[1]
+            )
+    else:
+        fillInGenotypesFromPhase(ind.genotypes, ind.haplotypes[0], ind.haplotypes[1])
 
 
-def ind_align(ind):
-    fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
-    fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
-
-    fillInGenotypesFromPhase(ind.genotypes, ind.haplotypes[0], ind.haplotypes[1])
-    fillInCompPhase(ind.haplotypes[0], ind.genotypes, ind.haplotypes[1])
-    fillInCompPhase(ind.haplotypes[1], ind.genotypes, ind.haplotypes[0])
+def ind_align(ind, isXChr=False):
+    if isXChr:
+        if ind.sex == 0:
+            ind.haplotypes[0][:] = 9
+            fillInPhaseFromGenotypes_XYChr(ind.haplotypes[1], ind.genotypes)
+            fillInGenotypesFromPhase_XYChr(
+                ind.genotypes, ind.haplotypes[0], ind.haplotypes[1]
+            )
+        else:
+            fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
+            fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
+            fillInGenotypesFromPhase(
+                ind.genotypes, ind.haplotypes[0], ind.haplotypes[1]
+            )
+            fillInCompPhase(ind.haplotypes[0], ind.genotypes, ind.haplotypes[1])
+            fillInCompPhase(ind.haplotypes[1], ind.genotypes, ind.haplotypes[0])
+    else:
+        fillInPhaseFromGenotypes(ind.haplotypes[0], ind.genotypes)
+        fillInPhaseFromGenotypes(ind.haplotypes[1], ind.genotypes)
+        fillInGenotypesFromPhase(ind.genotypes, ind.haplotypes[0], ind.haplotypes[1])
+        fillInCompPhase(ind.haplotypes[0], ind.genotypes, ind.haplotypes[1])
+        fillInCompPhase(ind.haplotypes[1], ind.genotypes, ind.haplotypes[0])
 
 
 @jit(nopython=True)
@@ -32,6 +57,14 @@ def fillInGenotypesFromPhase(geno, phase1, phase2):
 
 
 @jit(nopython=True)
+def fillInGenotypesFromPhase_XYChr(geno, phase1, phase2):
+    for i in range(len(geno)):
+        if geno[i] == 9:
+            if phase2[i] != 9:
+                geno[i] = phase2[i]
+
+
+@jit(nopython=True)
 def fillInCompPhase(target, geno, compPhase):
     for i in range(len(geno)):
         if target[i] == 9:
@@ -47,6 +80,16 @@ def fillInPhaseFromGenotypes(phase, geno):
             if geno[i] == 0:
                 phase[i] = 0
             if geno[i] == 2:
+                phase[i] = 1
+
+
+@jit(nopython=True)
+def fillInPhaseFromGenotypes_XYChr(phase, geno):
+    for i in range(len(geno)):
+        if phase[i] == 9:
+            if geno[i] == 0:
+                phase[i] = 0
+            if geno[i] == 1:
                 phase[i] = 1
 
 

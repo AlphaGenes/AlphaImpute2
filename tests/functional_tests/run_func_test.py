@@ -1,6 +1,7 @@
 import os
 import subprocess
 import numpy as np
+import pytest
 
 
 def read_file(file_path, test_alt_allele_prob=False, **kwargs):
@@ -110,3 +111,60 @@ def test_2():
     _, std_err = pipes_2.communicate()
     decoded_std_err = std_err.decode("utf-8")
     assert error_message in decoded_std_err
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "with_recom",
+        "with_recom_missing",
+        "no_recom",
+        "no_recom_missing",
+    ],
+)
+def test_sex(suffix):
+    """Test sex chromosome imputation across 4 scenarios."""
+    BASE = "tests/functional_tests/test_sex"
+    OUT = "tests/functional_tests/outputs/test_sex"
+    geno_file = f"{BASE}/geno_file-{suffix}.txt"
+    ped_file = f"{BASE}/ped_file-{suffix}.txt"
+    out_prefix = f"{OUT}_{suffix}"
+
+    # --- Run imputation ---
+    os.system(
+        f"AlphaImpute2 -genotypes {geno_file} -pedigree {ped_file} "
+        f"-ped_only -x_chr -phase_output -out {out_prefix}"
+    )
+
+    # --- Output files exist ---
+    assert os.path.exists(f"{out_prefix}.genotypes")
+    assert os.path.exists(f"{out_prefix}.haplotypes")
+
+    # --- Load outputs ---
+    genotypes = np.array(read_file(f"{out_prefix}.genotypes"), dtype=str)
+    haplotypes = np.array(read_file(f"{out_prefix}.haplotypes"), dtype=str)
+
+    # --- Load true reference files ---
+    true_genotypes = np.array(
+        read_file(f"{BASE}/true-sex.{suffix}.genotypes"), dtype=str
+    )
+    true_haplotypes = np.array(
+        read_file(f"{BASE}/true-sex.{suffix}.haplotypes"), dtype=str
+    )
+
+    # --- Match against known truth ---
+    geno_vals = genotypes[:, 1:].astype(float)
+    true_geno_vals = true_genotypes[:, 1:].astype(float)
+
+    hap_vals = haplotypes[:, 1:].astype(float)
+    true_hap_vals = true_haplotypes[:, 1:].astype(float)
+
+    assert np.sum(np.abs(geno_vals - true_geno_vals)) <= 2, (
+        f"[{suffix}] Genotypes differ from truth\n"
+        f"Total diff: {np.sum(np.abs(geno_vals - true_geno_vals))}"
+    )
+
+    assert np.sum(np.abs(hap_vals - true_hap_vals)) <= 2, (
+        f"[{suffix}] Haplotypes differ from truth\n"
+        f"Total diff: {np.sum(np.abs(hap_vals - true_hap_vals))}"
+    )

@@ -1,6 +1,7 @@
 import argparse
 import sys
 import numpy as np
+from functools import partial
 
 from .tinyhouse import Pedigree
 from .tinyhouse import InputOutput
@@ -29,6 +30,27 @@ def getArgs():
     core_parser = parser.add_argument_group("Core arguments")
     core_parser.add_argument(
         "-out", required=True, type=str, help="The output file prefix."
+    )
+    core_parser.add_argument(
+        "-geno_prob",
+        action="store_true",
+        required=False,
+        help="Output genotype probabilities (see format details in the docs).",
+    )
+    # Fix: args.writekey missing → AttributeError in Pedigree.writeOrder() calling geno_prob
+    parser.add_argument(
+        "-writekey",
+        default="id",
+        required=False,
+        type=str,
+        help='Determines the order in which individuals are ordered in the output file based on their order in the corresponding input file. Individuals not in the input file are placed at the end of the file and sorted in alphanumeric order. These inividuals can be surpressed with the "-out_id_only" option. Options: id, pedigree, genotypes, sequence, segregation. Defualt: id.',
+    )
+
+    parser.add_argument(
+        "-onlykeyed",
+        action="store_true",
+        required=False,
+        help='Suppress output for individuals not present in the file specified with -out_id_order. It also suppresses "dummy" individuals.',
     )
     genotype_parser = parser.add_argument_group("Input arguments")
     genotype_parser.add_argument(
@@ -125,6 +147,13 @@ def getArgs():
         required=False,
         type=float,
         help="Estimated map length for pedigree and population imputation in Morgans. Default: 1 (100cM).",
+    )
+
+    core_impute_parser.add_argument(
+        "-x_chr",
+        action="store_true",
+        required=False,
+        help="A flag to indicate that input data is for a sex chromosome. Sex needs to be given in the pedigree file.",
     )
 
     pedigree_parser = parser.add_argument_group("Pedigree imputation options")
@@ -258,16 +287,27 @@ def getArgs():
     return InputOutput.parseArgs("AlphaImpute", parser)
 
 
-def writeGenoProbs(pedigree, genoProbFunc, outputFile):
+def writeGenoProbs(pedigree, outputFile, isXChr=False):
     # Function to write out the penetrance/anterior/posterior terms for individuals.
     # Used for debuging heuristic peeling
     with open(outputFile, "w+") as f:
         for idx, ind in pedigree.writeOrder():
-            matrix = genoProbFunc(ind)
+            genoProbs = ind.peeling_view.genotypeProbabilities
+            if isXChr:
+                if ind.sex == 0:  # male
+                    genoProbs[0, :] = genoProbs[0, :] + genoProbs[2, :]
+                    genoProbs[3, :] = genoProbs[1, :] + genoProbs[3, :]
+                    genoProbs[1, :] = 0
+                    genoProbs[2, :] = 0
+
+            genoProbs = genoProbs / np.sum(genoProbs, 0)
             f.write("\n")
-            for i in range(matrix.shape[0]):
+            for i in range(genoProbs.shape[0]):
                 f.write(
-                    ind.idx + " " + " ".join(map("{:.4f}".format, matrix[i, :])) + "\n"
+                    ind.idx
+                    + " "
+                    + " ".join(map("{:.4f}".format, genoProbs[i, :]))
+                    + "\n"
                 )
 
 
@@ -472,6 +512,8 @@ def write_out_data(pedigree, args):
                 )
             else:
                 write_seg(pedigree, args.out + ".segregation")
+        if args.geno_prob:
+            writeGenoProbs(pedigree, args.out + ".genoProbs", isXChr=args.x_chr)
 
 
 def write_seg(pedigree, outputFile):
@@ -492,13 +534,17 @@ def main():
     InputOutput.print_boilerplate("AlphaImpute2", version_version)
 
     InputOutput.setNumbaSeeds(12345)
-    pedigree = Pedigree.Pedigree(constructor=ImputationIndividual.AlphaImputeIndividual)
+    pedigree = Pedigree.Pedigree(
+        constructor=partial(
+            ImputationIndividual.AlphaImputeIndividual, isXChr=args.x_chr
+        )
+    )
     args.main_metafounder = "MF_1"
     read_in_data(pedigree, args)
     for ind in pedigree:
         ind.map_length = args.length
         ind.setupIndividual()
-        Imputation.ind_align(ind)
+        Imputation.ind_align(ind, args.x_chr)
 
     # First check if clustering only.
     if args.cluster_only:

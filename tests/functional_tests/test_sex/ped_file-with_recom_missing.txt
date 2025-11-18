@@ -1,0 +1,12 @@
+fm 0 0 1 # 0 for male, 1 for female
+ff 0 0 0
+mm 0 0 1
+mf 0 0 0
+f ff fm 0
+m mf mm 1
+pfem1 f m 1
+pfem2 f m 1
+pfem3 f m 1
+pmal1 f m 0
+pmal2 f m 0
+pmal3 f m 0

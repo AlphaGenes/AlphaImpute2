@@ -54,9 +54,11 @@ def runHeuristicPeeling(pedigree, args, final_cutoff=0.3):
 
     # Set to best-guess genotypes.
     for ind in pedigree:
-        call_genotypes(ind, final_cutoff, args.error)
+        call_genotypes(ind, final_cutoff, args.error, args.x_chr)
 
-    clearPeelingViewsIfNotNeeded(pedigree, args)
+    # Clear peeling view from all individuals to reduce memory impact.
+    # for ind in pedigree:
+    # ind.peeling_view = None
 
 
 @profile
@@ -78,7 +80,7 @@ def run_integrated_peeling(pedigree, args, final_cutoff=0.3, arrays=None):
 
     for ind in pedigree:
         ind.set_original_genotypes()  # May need to reset individuals
-        call_genotypes(ind, final_cutoff, args.error)
+        call_genotypes(ind, final_cutoff, args.error, args.x_chr)
 
     if args.lazy_phasing:
         # Option to build the haplotype library directly from pedigree-phased haplotypes.
@@ -125,7 +127,9 @@ def run_integrated_peeling(pedigree, args, final_cutoff=0.3, arrays=None):
     for ind in ld_for_ped_imputation:
         ind.restore_original_genotypes()
 
-    clearPeelingViewsIfNotNeeded(pedigree, args)
+    # Clear peeling view from all individuals to reduce memory impact.
+    # for ind in pedigree:
+    # ind.peeling_view = None
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
@@ -138,13 +142,13 @@ def extract_haplotype_library(pedigree, args, final_cutoff):
     for ind in pedigree:
         ind.restore_original_genotypes()
         ind.set_original_genotypes()
-        call_genotypes(ind, final_cutoff, args.error)
+        call_genotypes(ind, final_cutoff, args.error, args.x_chr)
 
         if ind.percent_phased > 0.95:
             ind.restore_original_genotypes()
             ind.set_original_genotypes()
 
-            call_genotypes(ind, 0.1, args.error)
+            call_genotypes(ind, 0.1, args.error, args.x_chr)
             clone = ind.copy()
             clone.current_haplotypes = clone.haplotypes
             hd_individuals.append(clone)
@@ -152,7 +156,7 @@ def extract_haplotype_library(pedigree, args, final_cutoff):
             ind.restore_original_genotypes()
             ind.set_original_genotypes()
 
-            call_genotypes(ind, final_cutoff, args.error)
+            call_genotypes(ind, final_cutoff, args.error, args.x_chr)
 
     return hd_individuals
 
@@ -175,28 +179,14 @@ def mask_genotypes(mat, mask):
 
 def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and penetrance value for Heuristic peeling.
-
-    seg_output = bool(args.seg_output)
     for ind in pedigree:
-        ind.setPeelingView(store_out_segregation=seg_output)
+        ind.setPeelingView()
 
 
-def clearPeelingViewsIfNotNeeded(pedigree, args):
-    if args.seg_output:
-        return
-
-    # Segregation output is written from the peeling view, so only release it when
-    # the output will not be requested later.
-    for ind in pedigree:
-        ind.peeling_view = None
-
-
-def call_genotypes(ind, final_cutoff, error_rate):
+def call_genotypes(ind, final_cutoff, error_rate, isXChr=False):
     # NOTE: THIS WORKS BUT REQUIRES SETTING THESE IN PEDIGREE "PEEL DOWN" ORDER
     # IF NOT, PARENT'S ANTERIOR VALUES MAY NOT BE CORRECTLY SET.
     # FIX: RUN FINAL ROUND OF PEEL DOWN AT THE END.
-
-    phase_probabilities = None
 
     if ind.peeling_view.has_offspring:
         if ind.sire is not None and ind.dam is not None:
@@ -212,8 +202,6 @@ def call_genotypes(ind, final_cutoff, error_rate):
         else:
             # If no parents, directly set genotypes from the penetrance field.
             ind.peeling_view.setGenotypesAll(final_cutoff)
-
-        phase_probabilities = ind.peeling_view.genotypeProbabilities
 
     else:
         nLoci = len(ind.genotypes)
@@ -236,31 +224,47 @@ def call_genotypes(ind, final_cutoff, error_rate):
         ind.peeling_view.setGenotypesFromGenotypeProbabilities(
             genotypeProbabilities, final_cutoff
         )
-        phase_probabilities = genotypeProbabilities
 
     if final_cutoff < 0.5:
         nLoci = len(ind.genotypes)
-        for i in range(nLoci):
-            if ind.genotypes[i] == 1:
-                if ind.haplotypes[0][i] + ind.haplotypes[1][i] != 1:
-                    # correct the genotype-haplotype mismatch
-                    phase_probs = phase_probabilities[1:3, i]
-                    phase = np.argmax(phase_probs)
-                    ind.haplotypes[0][i] = phase
-                    ind.haplotypes[1][i] = 1 - phase
+        if isXChr:
+            if ind.sex == 0:
+                # keep consistent with genotypes and haplotypes.
+                for i in range(nLoci):
+                    if ind.genotypes[i] != ind.haplotypes[1][i]:
+                        ind.haplotypes[1][i] = ind.genotypes[i]
+            else:
+                for i in range(nLoci):
+                    if ind.genotypes[i] == 1:
+                        if ind.haplotypes[0][i] + ind.haplotypes[1][i] != 1:
+                            # correct the genotype-haplotype mismatch
+                            phase_probs = ind.peeling_view.genotypeProbabilities[1:3, i]
+                            phase = np.argmax(phase_probs)
+                            ind.haplotypes[0][i] = phase
+                            ind.haplotypes[1][i] = 1 - phase
+        else:
+            for i in range(nLoci):
+                if ind.genotypes[i] == 1:
+                    if ind.haplotypes[0][i] + ind.haplotypes[1][i] != 1:
+                        # correct the genotype-haplotype mismatch
+                        phase_probs = ind.peeling_view.genotypeProbabilities[1:3, i]
+                        phase = np.argmax(phase_probs)
+                        ind.haplotypes[0][i] = phase
+                        ind.haplotypes[1][i] = 1 - phase
 
 
 @time_func("Core peeling cycles")
 def runPeelingCycles(pedigree, args, cutoffs):
+    isXChr = args.x_chr
     for cycle, genotype_cutoff in enumerate(cutoffs):
         print_title(f"Imputation cycle {cycle + 1}")
-        pedigreePeelDown(pedigree, args, genotype_cutoff)
-        pedigreePeelUp(pedigree, args, genotype_cutoff)
+        pedigreePeelDown(pedigree, args, genotype_cutoff, isXChr)
+        pedigreePeelUp(pedigree, args, genotype_cutoff, isXChr)
 
 
 @time_func("Peel down")
 @profile
-def pedigreePeelDown(pedigree, args, cutoff):
+def pedigreePeelDown(pedigree, args, cutoff, isXChr=False):
     # This function peels down a pedigree; i.e. it finds which regions an individual inherited from their parents, and then fills in the individual's anterior term using that information.
     # To do this peeling, individual's genotypes should be set to poster+penetrance; parent's genotypes should be set to All.
     # Since parents may be shared across families, we set the parents seperately from the rest of the family.
@@ -272,22 +276,26 @@ def pedigreePeelDown(pedigree, args, cutoff):
 
         if args.maxthreads <= 1:
             for family in generation.families:
-                peel_down_family(family, cutoff)
+                peel_down_family(family, cutoff, isXChr)
         else:
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=args.maxthreads
             ) as executor:
-                executor.map(peel_down_family, generation.families, repeat(cutoff))
+                executor.map(
+                    peel_down_family,
+                    generation.families,
+                    repeat(cutoff),
+                    repeat(isXChr),
+                )
 
 
 @time_func("Peel up")
 @profile
-def pedigreePeelUp(pedigree, args, cutoff):
+def pedigreePeelUp(pedigree, args, cutoff, isXChr=False):
     # This function peels up a pedigree; i.e. it finds which regions an individual inherited from their parents, and then fills in their PARENTS posterior term using that information.
     # To do this peeling, individual's genotypes should be set to poster+penetrance; parent's genotypes should be set to All.
     # Since parents may be shared across families, we set the parents seperately.
     # We then set the child genotypes, calculate the segregation estimates, and calculate the parent's posterior term on a family by family basis (heuristicPeelUp_family).
-
     for ind in pedigree:
         if ind.peeling_view.has_offspring:
             ind.peeling_view.clearPosterior()
@@ -304,13 +312,16 @@ def pedigreePeelUp(pedigree, args, cutoff):
 
         if args.maxthreads <= 1:
             for family in generation.families:
-                heuristicPeelUp_family(family, cutoff)
+                heuristicPeelUp_family(family, cutoff, isXChr)
         else:
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=args.maxthreads
             ) as executor:
                 executor.map(
-                    heuristicPeelUp_family, generation.families, repeat(cutoff)
+                    heuristicPeelUp_family,
+                    generation.families,
+                    repeat(cutoff),
+                    repeat(isXChr),
                 )
 
         for parent in generation.parents:
@@ -320,7 +331,7 @@ def pedigreePeelUp(pedigree, args, cutoff):
 #   Peel Down
 
 
-def peel_down_family(family, cutoff):
+def peel_down_family(family, cutoff, isXChr):
     sire = family.sire.peeling_view
     dam = family.dam.peeling_view
 
@@ -330,11 +341,11 @@ def peel_down_family(family, cutoff):
         offspring.append(ind.peeling_view)
 
     if len(offspring) > 0:
-        peel_down_family_jit(sire, dam, offspring, cutoff)
+        peel_down_family_jit(sire, dam, offspring, cutoff, isXChr)
 
 
 @jit(nopython=True, nogil=True)
-def peel_down_family_jit(sire, dam, offspring, cutoff):
+def peel_down_family_jit(sire, dam, offspring, cutoff, isXChr=False):
     nOffspring = len(offspring)
     for child in offspring:
         # We don't need to re-set calculate the posterior here, since the posterior value is constant for the peel down pass.
@@ -342,38 +353,65 @@ def peel_down_family_jit(sire, dam, offspring, cutoff):
 
     nOffspring = len(offspring)
     for child in offspring:
-        setSegregation(child, sire, dam)
+        setSegregation(child, sire, dam, isXChr)
 
     for i in range(nOffspring):
         if offspring[
             i
         ].has_offspring:  # Otherwise we don't really care about the offspring's values.
-            newAnterior = getAnterior(offspring[i], sire, dam)
+            newAnterior = getAnterior(offspring[i], sire, dam, isXChr)
             offspring[i].setAnterior(newAnterior)
             offspring[i].setGenotypesAll(cutoff)
             offspring[i].clearAnterior()
 
 
 @jit(nopython=True, nogil=True)
-def getAnterior(ind, sire, dam):
+def getAnterior(ind, sire, dam, isXChr=False):
     # Sets the anterior term based on the parent's genotype probabilities
     nLoci = len(ind.genotypes)
 
     anterior = np.full((4, nLoci), 0, dtype=np.float32)
 
-    pat_probs = getTransmittedProbs(ind.segregation[0], sire.genotypeProbabilities)
-    mat_probs = getTransmittedProbs(ind.segregation[1], dam.genotypeProbabilities)
-
     # Small error in genotypes. This was to fix some underflow warnings on the multiplications.
     e = 0.00001
-    for i in range(nLoci):
-        pat = pat_probs[i] * (1 - e) + e / 2
-        mat = mat_probs[i] * (1 - e) + e / 2
+    if isXChr:
+        if ind.sex == 0:
+            mat_probs = getTransmittedProbs_XChr(
+                ind.segregation[1], dam.genotypeProbabilities
+            )
+            for i in range(nLoci):
+                mat = mat_probs[i] * (1 - e) + e
 
-        anterior[0, i] = (1 - pat) * (1 - mat)
-        anterior[1, i] = (1 - pat) * mat
-        anterior[2, i] = pat * (1 - mat)
-        anterior[3, i] = pat * mat
+                anterior[0, i] = (1 - mat) / 2
+                anterior[1, i] = mat / 2
+                anterior[2, i] = (1 - mat) / 2
+                anterior[3, i] = mat / 2
+        else:
+            mat_probs = getTransmittedProbs(
+                ind.segregation[1], dam.genotypeProbabilities
+            )
+            pat_probs = getTransmittedProbs(
+                ind.segregation[0], sire.genotypeProbabilities
+            )
+            for i in range(nLoci):
+                pat = pat_probs[i] * (1 - e) + e / 2
+                mat = mat_probs[i] * (1 - e) + e / 2
+
+                anterior[0, i] = (1 - pat) * (1 - mat)
+                anterior[1, i] = (1 - pat) * mat
+                anterior[2, i] = pat * (1 - mat)
+                anterior[3, i] = pat * mat
+    else:
+        mat_probs = getTransmittedProbs(ind.segregation[1], dam.genotypeProbabilities)
+        pat_probs = getTransmittedProbs(ind.segregation[0], sire.genotypeProbabilities)
+        for i in range(nLoci):
+            pat = pat_probs[i] * (1 - e) + e / 2
+            mat = mat_probs[i] * (1 - e) + e / 2
+
+            anterior[0, i] = (1 - pat) * (1 - mat)
+            anterior[1, i] = (1 - pat) * mat
+            anterior[2, i] = pat * (1 - mat)
+            anterior[3, i] = pat * mat
     return anterior
 
 
@@ -392,10 +430,25 @@ def getTransmittedProbs(seg, genoProbs):
     return probs
 
 
+@jit(nopython=True, nogil=True)
+def getTransmittedProbs_XChr(seg, genoProbs):
+    # For each loci, calculate the probability of the parent transmitting a 1 allele.
+    # This will use the child's segregation value, and the parent's genotype probabilities.
+
+    nLoci = len(seg)
+    probs = np.full(nLoci, 0.5, np.float32)
+
+    for i in range(nLoci):
+        p = genoProbs[:, i]
+        p_1 = p[1] + p[3]
+        probs[i] = p_1
+    return probs
+
+
 #   Peel Up
 
 
-def heuristicPeelUp_family(family, cutoff):
+def heuristicPeelUp_family(family, cutoff, isXChr=False):
     sire = family.sire.peeling_view
     dam = family.dam.peeling_view
 
@@ -404,14 +457,16 @@ def heuristicPeelUp_family(family, cutoff):
     for ind in family.offspring:
         offspring.append(ind.peeling_view)
 
-    sire_scores, dam_scores = heuristicPeelUp_family_jit(sire, dam, offspring, cutoff)
+    sire_scores, dam_scores = heuristicPeelUp_family_jit(
+        sire, dam, offspring, cutoff, isXChr
+    )
 
     family.sire.peeling_view.addPosterior(sire_scores, family.idn)
     family.dam.peeling_view.addPosterior(dam_scores, family.idn)
 
 
 @jit(nopython=True, nogil=True)
-def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff):
+def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff, isXChr=False):
     # Calculate the genotypes for each individual using the Posterior + penetrance.
     # If the individual has offspring, re-calculate the posterior term based on the families already seen in the peel-up operation.
     for child in offspring:
@@ -420,7 +475,7 @@ def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff):
 
     # Re-estimate the offspring's segregation value
     for child in offspring:
-        setSegregation(child, sire, dam)
+        setSegregation(child, sire, dam, isXChr)
 
     # Scores represent the join log genotype probabilities for the sire + dam.
     nLoci = len(sire.genotypes)
@@ -428,8 +483,7 @@ def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff):
 
     # We peel the child up to both of their parents.
     for child in offspring:
-        peelChildToParents(child, combined_score)
-
+        peelChildToParents(child, combined_score, isXChr)
     # Calculate individual parental scores by marginalizing over the genotype probabilities of the other parent.
     sire_scores, dam_scores = collapseScoresWithGenotypes(
         combined_score, sire.genotypeProbabilities, dam.genotypeProbabilities
@@ -438,7 +492,7 @@ def heuristicPeelUp_family_jit(sire, dam, offspring, cutoff):
 
 
 @jit(nopython=True, nogil=True)
-def peelChildToParents(child, scores):
+def peelChildToParents(child, scores, isXChr=False):
     # TODO: Test fully inline version of this function.
 
     nLoci = scores.shape[2]
@@ -448,7 +502,7 @@ def peelChildToParents(child, scores):
             or child.haplotypes[0][i] != 9
             or child.haplotypes[1][i] != 9
         ):
-            segTensor = getLogSegregationForGenotype(child, i)
+            segTensor = getLogSegregationForGenotype(child, i, isXChr)
             # Summation below was broken out for speed gains in previous versions of numbda
             for j in range(4):
                 for k in range(4):
@@ -456,7 +510,7 @@ def peelChildToParents(child, scores):
 
 
 @jit(nopython=True, nogil=True)
-def getLogSegregationForGenotype(child, i):
+def getLogSegregationForGenotype(child, i, isXChr=False):
     # Basically we want to be able to go from seg[0] + seg[1] + genotype + hap[0] + hap[1] => joint parental genotype.
 
     seg_threshold = 0.99
@@ -468,7 +522,21 @@ def getLogSegregationForGenotype(child, i):
     hap1 = child.haplotypes[1][i]
 
     geno = child.genotypes[i]
-    return logGenotypeSegregationTensor[seg0, seg1, hap0, hap1, geno]
+    if isXChr:
+        if child.sex == 0:
+            if geno == 2:
+                print(
+                    f"Warning: No possible genotype 2 in male at position {i} of {child.idn} "
+                )
+            if geno == 1 and hap1 == 0:
+                print(
+                    f"Warning: No possible genotype 1 and maternal haplotype is 0 in male at position {i} of {child.idn} "
+                )
+            return logGenotypeSegregationTensor_XYChrom[seg0, seg1, hap0, hap1, geno]
+        else:
+            return logGenotypeSegregationTensor_XXChrom[seg0, seg1, hap0, hap1, geno]
+    else:
+        return logGenotypeSegregationTensor[seg0, seg1, hap0, hap1, geno]
 
 
 @jit(nopython=True, nogil=True)
@@ -526,27 +594,40 @@ def collapseScoresWithGenotypes(scores, sire_genotype_probs, dam_genotype_probs)
 
 
 @jit(nopython=True, nogil=True)
-def setSegregation(ind, sire, dam):
+def setSegregation(ind, sire, dam, isXChr=False):
     nLoci = len(ind.genotypes)
 
-    pointEstimates = np.full((4, nLoci), 1, dtype=np.float32)
-    fillPointEstimates(pointEstimates, ind, sire, dam)
+    if isXChr:
+        if ind.sex == 0:
+            pointEstimates = np.zeros((4, nLoci), dtype=np.float32)
+            pointEstimates[0, :] = 1
+            pointEstimates[1, :] = 1
+        elif ind.sex == 1:
+            pointEstimates = np.zeros((4, nLoci), dtype=np.float32)
+            pointEstimates[2, :] = 1
+            pointEstimates[3, :] = 1
+    else:
+        pointEstimates = np.full((4, nLoci), 1, dtype=np.float32)
+    fillPointEstimates(pointEstimates, ind, sire, dam, isXChr)
 
     # Runs a forward backward algorithm on the pointEstimates
-    smoothedEstimates = smoothPointSeg(
-        pointEstimates, 1.0 / nLoci * ind.map_length
-    )  # This is where different map lengths could be added.
+    if isXChr:
+        smoothedEstimates = smoothPointSeg_XChr(
+            pointEstimates, 1.0 / nLoci * ind.map_length, ind.sex
+        )
+    else:
+        smoothedEstimates = smoothPointSeg(
+            pointEstimates, 1.0 / nLoci * ind.map_length
+        )  # This is where different map lengths could be added.
 
-    if ind.store_out_segregation:
-        ind.out_segregation = smoothedEstimates.copy()
-
+    ind.out_segregation = smoothedEstimates.copy()
     # Then set the segregation values for the individual.
     ind.segregation[0][:] = smoothedEstimates[2, :] + smoothedEstimates[3, :]
     ind.segregation[1][:] = smoothedEstimates[1, :] + smoothedEstimates[3, :]
 
 
 @jit(nopython=True, nogil=True)
-def fillPointEstimates(pointEstimates, ind, sire, dam):
+def fillPointEstimates(pointEstimates, ind, sire, dam, isXChr=False):
     # Calculate probability of each segregation state conditional on parent's genotype state and own genotypes.
     nLoci = pointEstimates.shape[1]
     e = 0.0001
@@ -565,28 +646,56 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
             and ind.haplotypes[0][i] == 9
             and ind.haplotypes[1][i] == 9
         ):
-            if sirehap0 != 9 and sirehap1 != 9 and damhap0 != 9 and damhap1 != 9:
+            if sirehap1 != 9 and damhap0 != 9 and damhap1 != 9:
                 # This is ugly, but don't have a better solution.
 
-                if sirehap0 + damhap0 == 1:
-                    pointEstimates[0, i] *= 1 - e
-                else:
-                    pointEstimates[0, i] *= e
+                if sirehap0 != 9:
+                    if sirehap0 + damhap0 == 1:
+                        pointEstimates[0, i] *= 1 - e
+                    else:
+                        pointEstimates[0, i] *= e
 
-                if sirehap0 + damhap1 == 1:
-                    pointEstimates[1, i] *= 1 - e
-                else:
-                    pointEstimates[1, i] *= e
+                    if sirehap0 + damhap1 == 1:
+                        pointEstimates[1, i] *= 1 - e
+                    else:
+                        pointEstimates[1, i] *= e
 
-                if sirehap1 + damhap0 == 1:
-                    pointEstimates[2, i] *= 1 - e
-                else:
-                    pointEstimates[2, i] *= e
+                    if sirehap1 + damhap0 == 1:
+                        pointEstimates[2, i] *= 1 - e
+                    else:
+                        pointEstimates[2, i] *= e
 
-                if sirehap1 + damhap1 == 1:
-                    pointEstimates[3, i] *= 1 - e
-                else:
-                    pointEstimates[3, i] *= e
+                    if sirehap1 + damhap1 == 1:
+                        pointEstimates[3, i] *= 1 - e
+                    else:
+                        pointEstimates[3, i] *= e
+
+                elif sirehap0 == 9 and isXChr:
+                    if ind.sex == 0:  # individual is male
+                        if damhap0 == 1:
+                            pointEstimates[0, i] *= 1 - e
+                        else:
+                            pointEstimates[0, i] *= e
+
+                        if damhap1 == 1:
+                            pointEstimates[1, i] *= 1 - e
+                        else:
+                            pointEstimates[1, i] *= e
+
+                        pointEstimates[2, i] *= e
+                        pointEstimates[3, i] *= e
+                    else:
+                        pointEstimates[0, i] *= e
+                        pointEstimates[1, i] *= e
+                        if sirehap1 + damhap0 == 1:
+                            pointEstimates[2, i] *= 1 - e
+                        else:
+                            pointEstimates[2, i] *= e
+
+                        if sirehap1 + damhap1 == 1:
+                            pointEstimates[3, i] *= 1 - e
+                        else:
+                            pointEstimates[3, i] *= e
 
         if ind.haplotypes[0][i] != 9:
             indhap = ind.haplotypes[0][i]
@@ -605,22 +714,53 @@ def fillPointEstimates(pointEstimates, ind, sire, dam):
                     pointEstimates[1, i] *= e
                     pointEstimates[2, i] *= 1 - e
                     pointEstimates[3, i] *= 1 - e
+            elif isXChr:
+                pointEstimates[0, i] *= e
+                pointEstimates[1, i] *= e
+                pointEstimates[2, i] *= 1 - e
+                pointEstimates[3, i] *= 1 - e
 
         if ind.haplotypes[1][i] != 9:
             indhap = ind.haplotypes[1][i]
 
             if damhap0 != 9 and damhap1 != 9 and damhap0 != damhap1:
-                if indhap == damhap0:
-                    pointEstimates[0, i] *= 1 - e
-                    pointEstimates[1, i] *= e
-                    pointEstimates[2, i] *= 1 - e
-                    pointEstimates[3, i] *= e
+                if isXChr:
+                    if ind.sex == 0:
+                        if indhap == damhap0:
+                            pointEstimates[0, i] *= 1 - e
+                            pointEstimates[1, i] *= e
+                            pointEstimates[2, i] *= e
+                            pointEstimates[3, i] *= e
 
-                if indhap == damhap1:
-                    pointEstimates[0, i] *= e
-                    pointEstimates[1, i] *= 1 - e
-                    pointEstimates[2, i] *= e
-                    pointEstimates[3, i] *= 1 - e
+                        if indhap == damhap1:
+                            pointEstimates[0, i] *= e
+                            pointEstimates[1, i] *= 1 - e
+                            pointEstimates[2, i] *= e
+                            pointEstimates[3, i] *= e
+                    else:
+                        if indhap == damhap0:
+                            pointEstimates[0, i] *= e
+                            pointEstimates[1, i] *= e
+                            pointEstimates[2, i] *= 1 - e
+                            pointEstimates[3, i] *= e
+
+                        if indhap == damhap1:
+                            pointEstimates[0, i] *= e
+                            pointEstimates[1, i] *= e
+                            pointEstimates[2, i] *= e
+                            pointEstimates[3, i] *= 1 - e
+                else:
+                    if indhap == damhap0:
+                        pointEstimates[0, i] *= 1 - e
+                        pointEstimates[1, i] *= e
+                        pointEstimates[2, i] *= 1 - e
+                        pointEstimates[3, i] *= e
+
+                    if indhap == damhap1:
+                        pointEstimates[0, i] *= e
+                        pointEstimates[1, i] *= 1 - e
+                        pointEstimates[2, i] *= e
+                        pointEstimates[3, i] *= 1 - e
 
 
 @jit(
@@ -681,6 +821,89 @@ def smoothPointSeg(pointSeg, transmission):
         new[1] = e2 * tmp[2] + e1e * (tmp[0] + tmp[3]) + e2i * tmp[1]
         new[2] = e2 * tmp[1] + e1e * (tmp[0] + tmp[3]) + e2i * tmp[2]
         new[3] = e2 * tmp[0] + e1e * (tmp[1] + tmp[2]) + e2i * tmp[3]
+
+        for j in range(4):
+            seg[j, i] *= new[j]
+        prev = new
+
+    for i in range(nLoci):
+        norm_1D(seg[:, i])
+
+    return seg
+
+
+@jit(
+    nopython=True,
+    nogil=True,
+    locals={"e": float32, "e2": float32, "e1e": float32, "e2i": float32},
+)
+def smoothPointSeg_XChr(pointSeg, transmission, sex):
+    nLoci = pointSeg.shape[1]
+
+    # Seg is the output, and is a copy of pointseg.
+    seg = np.full(pointSeg.shape, 0.25, dtype=np.float32)
+    for i in range(nLoci):
+        for j in range(4):
+            seg[j, i] = pointSeg[j, i]
+
+    # Variables.
+    tmp = np.full(4, 0, dtype=np.float32)
+    new = np.full(4, 0, dtype=np.float32)
+    prev = np.zeros(4, dtype=np.float32)
+    if sex == 0:
+        prev[0] = 0.5
+        prev[1] = 0.5
+    else:
+        prev[2] = 0.5
+        prev[3] = 0.5
+
+    # Transmission constants.
+    e = transmission
+    e = e
+    ei = 1.0 - e
+
+    for i in range(1, nLoci):
+        # Combine previous estimate with previous pointseg and then transmit forward.
+        for j in range(4):
+            tmp[j] = prev[j] * pointSeg[j, i - 1]
+
+        norm_1D(tmp)
+
+        # Father/Mother; Paternal/Maternal
+        # !                  fm  fm  fm  fm
+        # !segregationOrder: pp, pm, mp, mm
+        if sex == 0:
+            new[0] = e * tmp[1] + ei * tmp[0]
+            new[1] = ei * tmp[1] + e * tmp[0]
+        else:
+            new[2] = e * tmp[3] + ei * tmp[2]
+            new[3] = ei * tmp[3] + e * tmp[2]
+
+        for j in range(4):
+            seg[j, i] *= new[j]
+        prev = new
+
+    prev = np.zeros(4, dtype=np.float32)
+    if sex == 0:
+        prev[0] = 0.5
+        prev[1] = 0.5
+    else:
+        prev[2] = 0.5
+        prev[3] = 0.5
+    for i in range(
+        nLoci - 2, -1, -1
+    ):  # zero indexed then minus one since we skip the boundary.
+        for j in range(4):
+            tmp[j] = prev[j] * pointSeg[j, i + 1]
+
+        norm_1D(tmp)
+
+        if sex == 0:
+            new[0] = e * tmp[1] + ei * tmp[0]
+            new[1] = ei * tmp[1] + e * tmp[0]
+        else:
+            new[2] = e * tmp[3] + ei * tmp[2]
+            new[3] = ei * tmp[3] + e * tmp[2]
 
         for j in range(4):
             seg[j, i] *= new[j]
@@ -776,6 +999,12 @@ def generateGenoProbs():
     geno_probs[9, 9, 1] = (
         np.array([0, 0.5, 0.5, 0], dtype=np.float32) * (1 - error) + error / 4
     )
+    geno_probs[9, 9, 0] = (
+        np.array([1, 0, 0, 0], dtype=np.float32) * (1 - error) + error / 4
+    )
+    geno_probs[9, 9, 2] = (
+        np.array([0, 0, 0, 1], dtype=np.float32) * (1 - error) + error / 4
+    )
 
     geno_probs[0, 9, 9] = (
         np.array([0.5, 0.5, 0, 0], dtype=np.float32) * (1 - error) + error / 4
@@ -804,10 +1033,42 @@ def generateGenoProbs():
     )
 
 
+def generateGenoProbs_Xchr_male():
+    global geno_probs_Xchr_male
+    error = 0.0001
+    geno_probs_Xchr_male[9, 9, 9] = (
+        np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32) * (1 - error) + error / 4
+    )
+    geno_probs_Xchr_male[9, 9, 1] = (
+        np.array([0, 0.5, 0, 0.5], dtype=np.float32) * (1 - error) + error / 4
+    )
+    geno_probs_Xchr_male[9, 9, 0] = (
+        np.array([0.5, 0, 0.5, 0], dtype=np.float32) * (1 - error) + error / 4
+    )
+
+    geno_probs_Xchr_male[9, 0, 9] = (
+        np.array([0.5, 0, 0.5, 0], dtype=np.float32) * (1 - error) + error / 4
+    )
+    geno_probs_Xchr_male[9, 1, 9] = (
+        np.array([0, 0.5, 0, 0.5], dtype=np.float32) * (1 - error) + error / 4
+    )
+
+    # geno_probs[9, 0, 1] no possible genotype
+    geno_probs_Xchr_male[9, 1, 1] = (
+        np.array([0, 0.5, 0, 0.5], dtype=np.float32) * (1 - error) + error / 4
+    )
+    geno_probs_Xchr_male[9, 0, 0] = (
+        np.array([0.5, 0, 0.5, 0], dtype=np.float32) * (1 - error) + error / 4
+    )
+    # geno_probs[1, 1, 2] no possible genotype
+
+
 geno_probs = np.full(
     (10, 10, 10, 4), 0.25, dtype=np.float32
 )  # Because 9 indexing for missing.
 generateGenoProbs()
+geno_probs_Xchr_male = np.full((10, 10, 10, 4), 0.25, dtype=np.float32)
+generateGenoProbs_Xchr_male()
 
 # Now generate a segregation tensor that goes from genotypes -> phasedGenotypes + error -> probs on parents.
 # logGenotypeSegregationTensor = np.log(genotypeSegregationTensor)
@@ -818,8 +1079,16 @@ def generateLogGenotypeSegregationTensor():
 
     error = 0.01
     global logGenotypeSegregationTensor
+    global logGenotypeSegregationTensor_XXChrom
+    global logGenotypeSegregationTensor_XYChrom
     segregationTensor = (
         ProbMath.generateSegregation()
+    )  # This will be sire, dam, offspring.
+    segregationTensorXXChrom = (
+        ProbMath.generateSegregationXXChrom()
+    )  # This will be sire, dam, offspring.
+    segregationTensorXYChrom = (
+        ProbMath.generateSegregationXYChrom()
     )  # This will be sire, dam, offspring.
 
     # segregation probabilities for each possible segregation value.
@@ -850,13 +1119,21 @@ def generateLogGenotypeSegregationTensor():
     genotypeSegregationTensor = np.full(
         (10, 10, 10, 10, 10, 4, 4), 0.25, dtype=np.float32
     )
+    genotypeSegregationTensor_XXChrom = np.full(
+        (10, 10, 10, 10, 10, 4, 4), 0.25, dtype=np.float32
+    )
+    genotypeSegregationTensor_XYChrom = np.full(
+        (10, 10, 10, 10, 10, 4, 4), 0.25, dtype=np.float32
+    )
 
     for seg0 in [0, 1, 9]:
         for seg1 in [0, 1, 9]:
             for hap0 in [0, 1, 9]:
                 for hap1 in [0, 1, 9]:
                     for geno in [0, 1, 2, 9]:
-                        genotypes = geno_probs[hap0, hap1, geno]
+                        genotypes = geno_probs[
+                            hap0, hap1, geno
+                        ]  # return phased genotype probabilities
                         segregation = seg_probs[seg0, seg1]
 
                         genotypeSegregationTensor[
@@ -867,8 +1144,55 @@ def generateLogGenotypeSegregationTensor():
                             genotypes,
                             segregation,
                         )
+
                         logGenotypeSegregationTensor = np.log(genotypeSegregationTensor)
+    for seg0 in [0, 1, 9]:
+        for seg1 in [0, 1, 9]:
+            for hap0 in [0, 1, 9]:
+                for hap1 in [0, 1, 9]:
+                    for geno in [0, 1, 2, 9]:
+                        genotypes = geno_probs[
+                            hap0, hap1, geno
+                        ]  # return phased genotype probabilities
+                        segregation = seg_probs[seg0, seg1]
+
+                        genotypeSegregationTensor_XXChrom[
+                            seg0, seg1, hap0, hap1, geno, :, :
+                        ] = np.einsum(
+                            "abcd, c, d -> ab",
+                            segregationTensorXXChrom,
+                            genotypes,
+                            segregation,
+                        )
+
+                        logGenotypeSegregationTensor_XXChrom = np.log(
+                            genotypeSegregationTensor_XXChrom
+                        )
+    for seg0 in [0, 1, 9]:
+        for seg1 in [0, 1, 9]:
+            for hap0 in [0, 1, 9]:
+                for hap1 in [0, 1, 9]:
+                    for geno in [0, 1, 2, 9]:
+                        genotypes = geno_probs_Xchr_male[
+                            hap0, hap1, geno
+                        ]  # return phased genotype probabilities
+                        segregation = seg_probs[seg0, seg1]
+
+                        genotypeSegregationTensor_XYChrom[
+                            seg0, seg1, hap0, hap1, geno, :, :
+                        ] = np.einsum(
+                            "abcd, c, d -> ab",
+                            segregationTensorXYChrom,
+                            genotypes,
+                            segregation,
+                        )
+
+                        logGenotypeSegregationTensor_XYChrom = np.log(
+                            genotypeSegregationTensor_XYChrom
+                        )
 
 
 logGenotypeSegregationTensor = None
+logGenotypeSegregationTensor_XXChrom = None
+logGenotypeSegregationTensor_XYChrom = None
 generateLogGenotypeSegregationTensor()

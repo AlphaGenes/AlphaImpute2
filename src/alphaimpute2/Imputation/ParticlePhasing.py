@@ -19,7 +19,9 @@ if not ("profile" in globals()):
 
 # @time_func("Creating BW library")
 @profile
-def get_reference_library(individuals, individual_exclusion=False, reverse=False):
+def get_reference_library(
+    individuals, individual_exclusion=False, reverse=False, x_chr=False
+):
     # Construct a library, and add individuals to it.
     # individual_exclusion adds a flag to record who's haplotype is in the library, so that the haplotype can be removed when phasing that individual.
     # setup: Determins whether the BW library is set up, or if just a base library is created. This can be useful if the library needs to be sub-setted before being used.
@@ -28,7 +30,11 @@ def get_reference_library(individuals, individual_exclusion=False, reverse=False
     haplotype_library = BurrowsWheelerLibrary.BurrowsWheelerLibrary()
 
     for ind in individuals:
-        for hap in ind.current_haplotypes:
+        if x_chr and ind.sex == 0:
+            haplotypes = [ind.current_haplotypes[1]]  # only the X haplotype
+        else:
+            haplotypes = ind.current_haplotypes
+        for hap in haplotypes:
             # Unless set to something else, ind.current_haplotypes tracks ind.haplotypes.
             if reverse:
                 new_hap = np.ascontiguousarray(np.flip(hap))
@@ -92,7 +98,10 @@ def create_library_and_phase(individuals, cycles, args):
 @time_func("Phasing round")
 @profile
 def phase_round(individuals, set_haplotypes=False, n_samples=40, args=None):
-    bw_library = get_reference_library(individuals, individual_exclusion=True)
+    x_chr = args.x_chr if args is not None else False
+    bw_library = get_reference_library(
+        individuals, individual_exclusion=True, x_chr=x_chr
+    )
     bw_library.setup_library(create_reverse_library=True, create_a=False)
 
     if InputOutput.args.maxthreads <= 1:
@@ -209,16 +218,21 @@ def phase_jit(
         )
         extended_sample_container.samples = converted_samples
         pat_hap, mat_hap = extended_sample_container.get_consensus(
-            phasing_consensus_window_size
+            phasing_consensus_window_size, ind.isXChr, ind.sex
         )
 
     else:
-        pat_hap, mat_hap = sample_container.get_consensus(phasing_consensus_window_size)
+        pat_hap, mat_hap = sample_container.get_consensus(
+            phasing_consensus_window_size, ind.isXChr, ind.sex
+        )
 
     if not imputation and set_haplotypes:
         if ind.population_imputation_target:
             # If phasing, and individual is a target for imputation, set their haplotypes.
-            add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+            if ind.isXChr and ind.sex == 0:
+                add_haplotypes_to_ind_xchr_male(ind, mat_hap)
+            else:
+                add_haplotypes_to_ind(ind, pat_hap, mat_hap)
 
         ind.backward[:, :] = 0
         for sample in sample_container.samples:
@@ -227,7 +241,10 @@ def phase_jit(
             )  # We're really just averaging over particles.
 
     if imputation:
-        add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+        if ind.isXChr and ind.sex == 0:
+            add_haplotypes_to_ind_xchr_male(ind, mat_hap)
+        else:
+            add_haplotypes_to_ind(ind, pat_hap, mat_hap)
         backward = (
             ind.backward
         )  # Not sure why we need to set a secondary variable here, but it turns out we do, otherwise ind.backward doesn't update correctly.
@@ -244,8 +261,12 @@ def phase_jit(
                     ]  # We're really just averaging over particles.
 
     # Always set current_haplotype after the last round of phasing.
-    ind.current_haplotypes[0][:] = pat_hap
-    ind.current_haplotypes[1][:] = mat_hap
+    if ind.isXChr and ind.sex == 0:
+        ind.current_haplotypes[0][:] = 0
+        ind.current_haplotypes[1][:] = mat_hap
+    else:
+        ind.current_haplotypes[0][:] = pat_hap
+        ind.current_haplotypes[1][:] = mat_hap
 
 
 @jit(nopython=True, nogil=True)
@@ -254,6 +275,13 @@ def add_haplotypes_to_ind(ind, pat_hap, mat_hap):
     ind.haplotypes[0][:] = pat_hap[:]
     ind.haplotypes[1][:] = mat_hap[:]
     ind.genotypes[:] = pat_hap[:] + mat_hap[:]
+
+
+@jit(nopython=True, nogil=True)
+def add_haplotypes_to_ind_xchr_male(ind, mat_hap):
+    ind.haplotypes[0][:] = 9
+    ind.haplotypes[1][:] = mat_hap[:]
+    ind.genotypes[:] = mat_hap[:]
 
 
 @jit(nopython=True, nogil=True)
