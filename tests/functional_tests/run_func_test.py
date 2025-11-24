@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 
 def read_file(file_path, test_alt_allele_prob=False, **kwargs):
@@ -38,13 +39,34 @@ def read_file(file_path, test_alt_allele_prob=False, **kwargs):
 
 
 def test_1():
+    """basic functionality test with pedigree only mode"""
     os.system(
-        "AlphaImpute2 -genotypes tests/functional_tests/data/genotypes.txt -pedigree tests/functional_tests/data/pedigree.txt -ped_only -phase_output -seg_output -out tests/functional_tests/outputs/test_1"
+        "AlphaImpute2 -genotypes tests/functional_tests/test_1/genotypes.txt -pedigree tests/functional_tests/test_1/pedigree.txt -ped_only -phase_output -seg_output -out tests/functional_tests/outputs/test_1"
     )
     assert os.path.exists("tests/functional_tests/outputs/test_1.genotypes")
     assert os.path.exists("tests/functional_tests/outputs/test_1.haplotypes")
     assert os.path.exists("tests/functional_tests/outputs/test_1.segregation")
 
     genotypes = read_file("tests/functional_tests/outputs/test_1.genotypes")
-    expected_genotypes = read_file("tests/functional_tests/data/true_genotypes.txt")
+    expected_genotypes = read_file("tests/functional_tests/test_1/true_genotypes.txt")
     assert genotypes == expected_genotypes
+
+
+def test_2():
+    """check if genotype and phase outputs match"""
+    os.system(
+        "AlphaImpute2 -genotypes tests/functional_tests/test_2/genotypes.txt -pedigree tests/functional_tests/test_2/pedigree.txt -ped_only -phase_output -out tests/functional_tests/outputs/test_2"
+    )
+    assert os.path.exists("tests/functional_tests/outputs/test_2.genotypes")
+    assert os.path.exists("tests/functional_tests/outputs/test_2.haplotypes")
+
+    genotypes = read_file("tests/functional_tests/outputs/test_2.genotypes")
+    genotypes = np.array(genotypes, dtype=int)
+
+    haplotypes = read_file("tests/functional_tests/outputs/test_2.haplotypes")
+    haplotypes = np.array(haplotypes, dtype=int)
+
+    for ind, genotype in enumerate(genotypes):
+        hap_0 = haplotypes[ind * 2][1:]
+        hap_1 = haplotypes[ind * 2 + 1][1:]
+        assert np.all(genotype[1:] == hap_0 + hap_1)

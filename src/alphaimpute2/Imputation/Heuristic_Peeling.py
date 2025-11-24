@@ -222,6 +222,15 @@ def call_genotypes(ind, final_cutoff, error_rate):
 
         ind.peeling_view.setGenotypesFromGenotypeProbabilities(penetrance, final_cutoff)
 
+    if final_cutoff < 0.5:
+        nLoci = len(ind.genotypes)
+        for i in range(nLoci):
+            if ind.genotypes[i] == 1:
+                if ind.haplotypes[0][i] + ind.haplotypes[1][i] != 1:
+                    # Phasing is ambiguous, randomly assign phase.
+                    ind.haplotypes[0][i] = 0
+                    ind.haplotypes[1][i] = 1
+
 
 @time_func("Core peeling cycles")
 def runPeelingCycles(pedigree, args, cutoffs):
