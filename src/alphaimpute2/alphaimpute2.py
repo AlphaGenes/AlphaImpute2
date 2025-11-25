@@ -266,6 +266,11 @@ def run_population_only(pedigree, arrays, args):
     print(f"Number of HD individuals: {len(hd_individuals)}")
     print(f"Number of LD individuals: {len(ld_individuals)}")
 
+    if len(hd_individuals) < 10:
+        raise ValueError(
+            "Fewer than 10 HD individuals found for population imputation. Population imputation cannot proceed. Consider using -ped_only imputation or reducing -hd_threshold parameter."
+        )
+
     print_title("Phasing")
     print(f"Number of phasing cycles: {args.n_phasing_cycles}")
     print(f"Number of phasing particles: {args.n_phasing_particles}")
@@ -314,6 +319,11 @@ def run_combined(pedigree, arrays, args):
         final_cutoff=args.final_peeling_threshold_for_phasing,
         arrays=arrays,
     )
+
+    if len(hd_individuals) < 10:
+        raise ValueError(
+            "Fewer than 10 HD individuals found for population imputation. Population imputation cannot proceed. Consider using -ped_only imputation or reducing -hd_threshold parameter."
+        )
 
     print_title("Phasing")
     print(f"Number of HD individuals: {len(hd_individuals)}")

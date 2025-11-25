@@ -1,4 +1,5 @@
 import os
+import subprocess
 import numpy as np
 
 
@@ -53,7 +54,7 @@ def test_1():
 
 
 def test_2():
-    """check if genotype and phase outputs match"""
+    """check if genotype and phase outputs match for pedigree imputation, and error handling for insufficient HD individuals for population imputation"""
     os.system(
         "AlphaImpute2 -genotypes tests/functional_tests/test_2/genotypes.txt -pedigree tests/functional_tests/test_2/pedigree.txt -ped_only -phase_output -out tests/functional_tests/outputs/test_2"
     )
@@ -70,3 +71,42 @@ def test_2():
         hap_0 = haplotypes[ind * 2][1:]
         hap_1 = haplotypes[ind * 2 + 1][1:]
         assert np.all(genotype[1:] == hap_0 + hap_1)
+
+    error_message = "Fewer than 10 HD individuals found for population imputation. Population imputation cannot proceed. Consider using -ped_only imputation or reducing -hd_threshold parameter."
+
+    pipes_1 = subprocess.Popen(
+        [
+            "AlphaImpute2",
+            "-genotypes",
+            "tests/functional_tests/test_2/genotypes.txt",
+            "-pedigree",
+            "tests/functional_tests/test_2/pedigree.txt",
+            "-phase_output",
+            "-out",
+            "tests/functional_tests/outputs/test_2",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _, std_err = pipes_1.communicate()
+    decoded_std_err = std_err.decode("utf-8")
+    assert error_message in decoded_std_err
+
+    pipes_2 = subprocess.Popen(
+        [
+            "AlphaImpute2",
+            "-genotypes",
+            "tests/functional_tests/test_2/genotypes.txt",
+            "-pedigree",
+            "tests/functional_tests/test_2/pedigree.txt",
+            "-pop_only",
+            "-phase_output",
+            "-out",
+            "tests/functional_tests/outputs/test_2",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _, std_err = pipes_2.communicate()
+    decoded_std_err = std_err.decode("utf-8")
+    assert error_message in decoded_std_err
