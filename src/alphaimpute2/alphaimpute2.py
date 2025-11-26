@@ -268,7 +268,7 @@ def run_population_only(pedigree, arrays, args):
 
     if len(hd_individuals) < 10:
         raise ValueError(
-            "Fewer than 10 HD individuals found for population imputation. Population imputation cannot proceed. Consider using -ped_only imputation or reducing -hd_threshold parameter."
+            "Too few HD individuals were found for population imputation (the filter is set at 10 HD individuals, but you likely need way more!). Population imputation cannot proceed. Consider using -ped_only imputation or reducing the -hd_threshold parameter."
         )
 
     print_title("Phasing")
@@ -322,7 +322,7 @@ def run_combined(pedigree, arrays, args):
 
     if len(hd_individuals) < 10:
         raise ValueError(
-            "Fewer than 10 HD individuals found for population imputation. Population imputation cannot proceed. Consider using -ped_only imputation or reducing -hd_threshold parameter."
+            "Too few HD individuals were found for population imputation (the filter is set at 10 HD individuals, but you likely need way more!). Population imputation cannot proceed. Consider using -ped_only imputation or reducing the -hd_threshold parameter."
         )
 
     print_title("Phasing")

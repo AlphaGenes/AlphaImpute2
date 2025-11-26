@@ -72,7 +72,7 @@ def test_2():
         hap_1 = haplotypes[ind * 2 + 1][1:]
         assert np.all(genotype[1:] == hap_0 + hap_1)
 
-    error_message = "Fewer than 10 HD individuals found for population imputation. Population imputation cannot proceed. Consider using -ped_only imputation or reducing -hd_threshold parameter."
+    error_message = "Too few HD individuals were found for population imputation (the filter is set at 10 HD individuals, but you likely need way more!). Population imputation cannot proceed. Consider using -ped_only imputation or reducing the -hd_threshold parameter."
 
     pipes_1 = subprocess.Popen(
         [
