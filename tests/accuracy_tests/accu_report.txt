@@ -1,0 +1,16 @@
+pop_only genotypes Marker_accuracies 0.953 0.946 0.966 0.97 0.963 0.925
+pop_only genotypes Individual_accuracies 0.981 0.977 0.985 0.987 0.985 0.97
+pop_only haplotypes Marker_accuracies 0.473 0.432 0.557 0.439 0.475 0.46
+pop_only haplotypes Individual_accuracies 0.668 0.644 0.719 0.645 0.67 0.663
+ped_only genotypes Marker_accuracies 0.768 0.517 0.773 0.991 0.994 0.988
+ped_only genotypes Individual_accuracies 0.896 0.602 0.89 0.995 0.997 0.995
+ped_only haplotypes Marker_accuracies 0.684 0.194 0.761 0.988 0.991 0.984
+ped_only haplotypes Individual_accuracies 0.846 0.418 0.833 0.992 0.995 0.99
+ped_only segregation Marker_accuracies 0.839 nan nan 0.973 0.97 0.962
+ped_only segregation Individual_accuracies 0.93 nan nan 0.943 0.936 0.909
+combined genotypes Marker_accuracies 0.98 0.94 0.992 0.994 0.994 0.988
+combined genotypes Individual_accuracies 0.993 0.978 0.997 0.997 0.997 0.995
+combined haplotypes Marker_accuracies 0.881 0.453 0.988 0.992 0.991 0.984
+combined haplotypes Individual_accuracies 0.926 0.656 0.993 0.995 0.995 0.99
+combined segregation Marker_accuracies 0.697 nan -0.115 0.974 0.97 0.962
+combined segregation Individual_accuracies 0.676 nan -0.098 0.947 0.936 0.909
