@@ -31,8 +31,42 @@ def getArgs():
         "-out", required=True, type=str, help="The output file prefix."
     )
     genotype_parser = parser.add_argument_group("Input arguments")
-    InputOutput.add_arguments_from_dictionary(
-        genotype_parser, InputOutput.get_input_options(), None
+    genotype_parser.add_argument(
+        "-genotypes",
+        default=None,
+        required=False,
+        type=str,
+        nargs="*",
+        help="A file in AlphaGenes format.",
+    )
+    genotype_parser.add_argument(
+        "-pedigree",
+        default=None,
+        required=False,
+        type=str,
+        nargs="*",
+        help="A pedigree file in AlphaGenes format.",
+    )
+    genotype_parser.add_argument(
+        "-startsnp",
+        default=None,
+        required=False,
+        type=int,
+        help="The first marker to consider. The first marker in the file is marker '1'. Default: 1.",
+    )
+    genotype_parser.add_argument(
+        "-stopsnp",
+        default=None,
+        required=False,
+        type=int,
+        help="The last marker to consider. Default: all markers considered.",
+    )
+    genotype_parser.add_argument(
+        "-seed",
+        default=None,
+        required=False,
+        type=int,
+        help="A random seed to use for debugging.",
     )
 
     probability_parser = parser.add_argument_group("Probability options")
