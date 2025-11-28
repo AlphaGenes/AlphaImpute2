@@ -22,10 +22,17 @@ AlphaImpute2 is program to perform imputation in a range of animal and plant spe
 
 Please report any issues to `John.Hickey@roslin.ed.ac.uk <John.Hickey@roslin.ed.ac.uk>`_ or `awhalen@roslin.ed.ac.uk <awhalen@roslin.ed.ac.uk>`_.
 
-Availability
+Installation
 ------------
 
-AlphaImpute2 is available from the `AlphaGenes <http://www.alphagenes.roslin.ed.ac.uk/software-packages/AlphaImpute2/>`_ website. The download files contains a python wheel file along with this documentation and an example. 
+AlphaImpute2 is available from the `PyPI <https://pypi.org/project/AlphaImpute2/>`_ website.
+
+You can install the latest release with
+
+.. code-block:: bash
+  pip install AlphaImpute2
+
+The source code is available at `GitHub <https://github.com/AlphaGenes/AlphaImpute2>`_.
 
 Conditions of use
 -----------------
@@ -211,7 +218,7 @@ Example: ::
   id2 0 0
   id3 id1 id2
   id4 id1 id2
-  
+
 
 Output file formats
 ~~~~~~~~~~~~~~~~~~~
