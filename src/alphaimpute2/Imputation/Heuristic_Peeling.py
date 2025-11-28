@@ -206,8 +206,8 @@ def call_genotypes(ind, final_cutoff, error_rate):
     else:
         nLoci = len(ind.genotypes)
 
-        penetrance = np.full((4, nLoci), 1, dtype=np.float32)
-        ind.peeling_view.setValueFromGenotypes(penetrance, error_rate)
+        genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
+        ind.peeling_view.setValueFromGenotypes(genotypeProbabilities, error_rate)
 
         if ind.sire is not None and ind.dam is not None:
             # Re-calculate parent genotypes with all sources of information.
@@ -215,12 +215,27 @@ def call_genotypes(ind, final_cutoff, error_rate):
             ind.dam.peeling_view.setGenotypesAll(ind.dam.peeling_view.currentCutoff)
 
             # Calculate anterior from the parents.
+
+            genotypeProbabilities = ind.peeling_view.genotypeProbabilities
             anterior = getAnterior(
                 ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view
             )
-            penetrance *= anterior  # Add the penetrance with the anterior. Normalization will happen within the function.
+            genotypeProbabilities *= anterior  # Add the penetrance with the anterior. Normalization will happen within the function.
 
-        ind.peeling_view.setGenotypesFromGenotypeProbabilities(penetrance, final_cutoff)
+        ind.peeling_view.setGenotypesFromGenotypeProbabilities(
+            genotypeProbabilities, final_cutoff
+        )
+
+    if final_cutoff < 0.5:
+        nLoci = len(ind.genotypes)
+        for i in range(nLoci):
+            if ind.genotypes[i] == 1:
+                if ind.haplotypes[0][i] + ind.haplotypes[1][i] != 1:
+                    # correct the genotype-haplotype mismatch
+                    phase_probs = ind.peeling_view.genotypeProbabilities[1:3, i]
+                    phase = np.argmax(phase_probs)
+                    ind.haplotypes[0][i] = phase
+                    ind.haplotypes[1][i] = 1 - phase
 
 
 @time_func("Core peeling cycles")

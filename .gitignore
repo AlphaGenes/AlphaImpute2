@@ -9,4 +9,5 @@ __pycache__/
 build/
 example/outputs
 .env
-tests/functional_tests/outputs
+tests/*_tests/outputs
+tests/accuracy_tests/accu_report.txt

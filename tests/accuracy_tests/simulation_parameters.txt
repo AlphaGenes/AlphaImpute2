@@ -1,0 +1,11 @@
+nInd 1000
+nGen 5
+nParents 100
+nLociAll 2000
+nLociHD 2000
+nLociLD 100
+nChr 1
+genoError 0.0001
+seqDepth 3
+seqError 0.001
+nSegMap 200
