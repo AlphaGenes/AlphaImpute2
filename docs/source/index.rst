@@ -211,29 +211,7 @@ Example: ::
   id2 0 0
   id3 id1 id2
   id4 id1 id2
-
-Phase file
------------
-
-The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype, and the second line will provide information on the maternal haplotype.
-
-Example: ::
-
-  id1 0 1 9 0 # Maternal haplotype
-  id1 0 1 9 0 # Paternal haplotype
-  id2 1 1 1 0
-  id2 0 0 0 1
-  id3 1 0 1 0
-  id3 1 0 1 0 
-  id4 0 1 0 0
-  id4 0 1 1 0
-
   
-Binary plink file
------------------
-
-AlphaImpute2 supports the use of binary plink files using the package ``AlphaPlinkPython``. AlphaImpute2 will use the pedigree supplied by the ``.fam`` file if a pedigree file is not supplied. Otherwise the pedigree file will be used and the ``.fam`` file will be ignored. 
-
 
 Output file formats
 ~~~~~~~~~~~~~~~~~~~
