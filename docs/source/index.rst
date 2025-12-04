@@ -22,10 +22,17 @@ AlphaImpute2 is program to perform imputation in a range of animal and plant spe
 
 Please report any issues to `John.Hickey@roslin.ed.ac.uk <John.Hickey@roslin.ed.ac.uk>`_ or `awhalen@roslin.ed.ac.uk <awhalen@roslin.ed.ac.uk>`_.
 
-Availability
+Installation
 ------------
 
-AlphaImpute2 is available from the `AlphaGenes <http://www.alphagenes.roslin.ed.ac.uk/software-packages/AlphaImpute2/>`_ website. The download files contains a python wheel file along with this documentation and an example. 
+AlphaImpute2 is available from the `PyPI <https://pypi.org/project/AlphaImpute2/>`_ website.
+
+You can install the latest release with
+
+.. code-block:: bash
+  pip install AlphaImpute2
+
+The source code is available at `GitHub <https://github.com/AlphaGenes/AlphaImpute2>`_.
 
 Conditions of use
 -----------------
@@ -68,28 +75,19 @@ Input Arguments
 ::
 
     Input arguments:
-      -bfile [BFILE ...]    A file in plink (binary) format. Only stable on Linux).
       -genotypes [GENOTYPES ...]
                             A file in AlphaGenes format.
-      -reference [REFERENCE ...]
-                            A haplotype reference panel in AlphaGenes format.
-      -seqfile [SEQFILE ...]
-                            A sequence data file.
       -pedigree [PEDIGREE ...]
                             A pedigree file in AlphaGenes format.
-      -phasefile [PHASEFILE ...]
-                            A phase file in AlphaGenes format.
       -startsnp STARTSNP    The first marker to consider. The first marker in the file is marker '1'. Default: 1.
       -stopsnp STOPSNP      The last marker to consider. Default: all markers considered.
       -seed SEED            A random seed to use for debugging.
 
 AlphaImpute2 requires a genotype file and an optional pedigree file to run the analysis.
 
-AlphaImpute2 supports binary plink files, ``-bfile``, genotype files in the AlphaGenesFormat, ``-genotypes``. A pedigree file may be supplied using the ``-pedigree`` option. 
+A pedigree file may be supplied using the ``-pedigree`` option. 
 
 Use the ``-startsnp`` and ``-stopsnp`` comands to run the analysis only on a subset of markers.
-
-Binary plink files require the package ``alphaplinkpython``. This can be installed via ``pip`` but is only stable for Linux.
 
 Imputation arguments: 
 ------------------------
@@ -220,28 +218,6 @@ Example: ::
   id2 0 0
   id3 id1 id2
   id4 id1 id2
-
-Phase file
------------
-
-The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype, and the second line will provide information on the maternal haplotype.
-
-Example: ::
-
-  id1 0 1 9 0 # Maternal haplotype
-  id1 0 1 9 0 # Paternal haplotype
-  id2 1 1 1 0
-  id2 0 0 0 1
-  id3 1 0 1 0
-  id3 1 0 1 0 
-  id4 0 1 0 0
-  id4 0 1 1 0
-
-  
-Binary plink file
------------------
-
-AlphaImpute2 supports the use of binary plink files using the package ``AlphaPlinkPython``. AlphaImpute2 will use the pedigree supplied by the ``.fam`` file if a pedigree file is not supplied. Otherwise the pedigree file will be used and the ``.fam`` file will be ignored. 
 
 
 Output file formats

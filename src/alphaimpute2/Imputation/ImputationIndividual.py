@@ -489,29 +489,17 @@ class jit_Peeling_Individual(object):
         self.has_offspring = has_offspring
         self.has_parents = has_parents
 
-        if self.has_offspring:
-            self.original_genotypes = self.genotypes.copy()
-            self.original_haplotypes = (
-                self.haplotypes[0].copy(),
-                self.haplotypes[1].copy(),
-            )
-            self.anterior_availible = False
-            self.posterior_open = False
-            self.posterior = np.full((4, nLoci), 1, dtype=np.float32)
-            self.anterior = np.full((0, 0), 1, dtype=np.float32)
+        self.original_genotypes = self.genotypes.copy()
+        self.original_haplotypes = (
+            self.haplotypes[0].copy(),
+            self.haplotypes[1].copy(),
+        )
+        self.anterior_availible = False
+        self.posterior_open = False
+        self.posterior = np.full((4, nLoci), 1, dtype=np.float32)
+        self.anterior = np.full((0, 0), 1, dtype=np.float32)
 
-            # self.anterior = np.full((4, nLoci), 1, dtype = np.float32)
-            # self.penetrance = np.full((4, nLoci), 1, dtype = np.float32)
-            self.genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
-
-        else:
-            self.original_genotypes = self.genotypes
-            self.original_haplotypes = self.haplotypes
-
-            self.posterior = np.full((0, 0), 1, dtype=np.float32)
-            self.anterior = np.full((0, 0), 1, dtype=np.float32)
-            # self.penetrance = np.full((0, 0), 1, dtype = np.float32)
-            self.genotypeProbabilities = np.full((0, 0), 1, dtype=np.float32)
+        self.genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
 
         self.newPosterior = None
 
@@ -718,6 +706,7 @@ class jit_Peeling_Individual(object):
     def setGenotypesFromGenotypeProbabilities(self, finalGenotypes, cutoff):
         nLoci = self.nLoci
         normalize(finalGenotypes)
+        self.genotypeProbabilities[:, :] = finalGenotypes
 
         # set genotypes/haplotypes from this value.
         for i in range(nLoci):

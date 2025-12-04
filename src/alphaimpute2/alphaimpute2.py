@@ -31,8 +31,42 @@ def getArgs():
         "-out", required=True, type=str, help="The output file prefix."
     )
     genotype_parser = parser.add_argument_group("Input arguments")
-    InputOutput.add_arguments_from_dictionary(
-        genotype_parser, InputOutput.get_input_options(), None
+    genotype_parser.add_argument(
+        "-genotypes",
+        default=None,
+        required=False,
+        type=str,
+        nargs="*",
+        help="A file in AlphaGenes format.",
+    )
+    genotype_parser.add_argument(
+        "-pedigree",
+        default=None,
+        required=False,
+        type=str,
+        nargs="*",
+        help="A pedigree file in AlphaGenes format.",
+    )
+    genotype_parser.add_argument(
+        "-startsnp",
+        default=None,
+        required=False,
+        type=int,
+        help="The first marker to consider. The first marker in the file is marker '1'. Default: 1.",
+    )
+    genotype_parser.add_argument(
+        "-stopsnp",
+        default=None,
+        required=False,
+        type=int,
+        help="The last marker to consider. Default: all markers considered.",
+    )
+    genotype_parser.add_argument(
+        "-seed",
+        default=None,
+        required=False,
+        type=int,
+        help="A random seed to use for debugging.",
     )
 
     probability_parser = parser.add_argument_group("Probability options")
@@ -266,6 +300,11 @@ def run_population_only(pedigree, arrays, args):
     print(f"Number of HD individuals: {len(hd_individuals)}")
     print(f"Number of LD individuals: {len(ld_individuals)}")
 
+    if len(hd_individuals) < 10:
+        raise ValueError(
+            "Too few HD individuals were found for population imputation (the filter is set at 10 HD individuals, but you likely need way more!). Population imputation cannot proceed. Consider using -ped_only imputation or reducing the -hd_threshold parameter."
+        )
+
     print_title("Phasing")
     print(f"Number of phasing cycles: {args.n_phasing_cycles}")
     print(f"Number of phasing particles: {args.n_phasing_particles}")
@@ -314,6 +353,11 @@ def run_combined(pedigree, arrays, args):
         final_cutoff=args.final_peeling_threshold_for_phasing,
         arrays=arrays,
     )
+
+    if len(hd_individuals) < 10:
+        raise ValueError(
+            "Too few HD individuals were found for population imputation (the filter is set at 10 HD individuals, but you likely need way more!). Population imputation cannot proceed. Consider using -ped_only imputation or reducing the -hd_threshold parameter."
+        )
 
     print_title("Phasing")
     print(f"Number of HD individuals: {len(hd_individuals)}")

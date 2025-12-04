@@ -15,10 +15,10 @@ AlphaImpute2 is available on [PyPI](https://pypi.org/project/AlphaImpute2/):
 
     pip install AlphaImpute2
 
-Availability
-============
+Example
+=======
 
-The AlphaImpute2.zip file contains a python3 wheel file, a manual, and an example dataset.
+An example dataset and corresponding script are available in the ``example/`` folder. 
 
 Conditions of use
 =================
