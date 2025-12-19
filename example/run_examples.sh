@@ -1,3 +1,5 @@
+#!/bin/sh
+
 # AlphaImpute2 is a command line package for imputation in pedigree populations
 # Install AlphaImpute2 via pip using:
 # pip install AlphaImpute2
@@ -34,4 +36,3 @@ AlphaImpute2 -genotypes data/genotypes.txt \
              -final_peeling_threshold 0.98 \
              -phase_output \
              -maxthreads 4
-
