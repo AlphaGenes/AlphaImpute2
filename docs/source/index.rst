@@ -17,10 +17,9 @@ AlphaImpute2
 Introduction
 ~~~~~~~~~~~~
 
-
 AlphaImpute2 is program to perform imputation in a range of animal and plant species. 
 
-Please report any issues to `John.Hickey@roslin.ed.ac.uk <John.Hickey@roslin.ed.ac.uk>`_ or `awhalen@roslin.ed.ac.uk <awhalen@roslin.ed.ac.uk>`_.
+Please report any issues on `GitHub <https://github.com/AlphaGenes/AlphaImpute2/issues>`_.
 
 Installation
 ------------
@@ -32,7 +31,7 @@ You can install the latest release with
 .. code-block:: bash
   pip install AlphaImpute2
 
-The source code is available at `GitHub <https://github.com/AlphaGenes/AlphaImpute2>`_.
+The source code is available on `GitHub <https://github.com/AlphaGenes/AlphaImpute2>`_.
 
 Conditions of use
 -----------------
