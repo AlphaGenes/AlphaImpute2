@@ -13,14 +13,12 @@
 mkdir -p outputs
 
 # Example 1: Run the full algorithm with population and pedigree based imputation
-
 AlphaImpute2 -genotypes data/genotypes.txt \
              -pedigree data/pedigree.txt \
              -out outputs/ai2 \
              -maxthreads 4
 
 # Example 1b: Run the population imputation algorithm only (used when pedigree data is unavailible)
-
 AlphaImpute2 -genotypes data/genotypes.txt \
              -pedigree data/pedigree.txt \
              -out outputs/pop_only \
@@ -28,7 +26,6 @@ AlphaImpute2 -genotypes data/genotypes.txt \
              -maxthreads 4
 
 # Example 2: Run the pedigree based imputation algorithm and only call high-confident haplotypes
-
 AlphaImpute2 -genotypes data/genotypes.txt \
              -pedigree data/pedigree.txt \
              -out outputs/ped_only \
