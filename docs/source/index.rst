@@ -6,7 +6,7 @@
 .. NOTE:  added the line to the latex options:   'extraclassoptions': 'openany,oneside'
 
 AlphaImpute2
-====================
+============
 
 .. toctree::
    :maxdepth: 2
@@ -19,19 +19,12 @@ Introduction
 
 AlphaImpute2 is program to perform imputation in a range of animal and plant species. 
 
-Please report any issues on `GitHub <https://github.com/AlphaGenes/AlphaImpute2/issues>`_.
-
-Installation
+Availability
 ------------
 
-AlphaImpute2 is available from the `PyPI <https://pypi.org/project/AlphaImpute2/>`_ website.
+AlphaImpute2 is available as open-source from `Github <https://github.com/AlphaGenes/AlphaImpute2>`_ and can be easily installed using ``pip install AlphaImpute2`` (the latest release).
 
-You can install the latest release with
-
-.. code-block:: bash
-  pip install AlphaImpute2
-
-The source code is available on `GitHub <https://github.com/AlphaGenes/AlphaImpute2>`_.
+Please report any issues at `<https://github.com/AlphaGenes/AlphaImpute2/issues>`_.
 
 Conditions of use
 -----------------
@@ -47,16 +40,14 @@ Disclaimer
 
 While every effort has been made to ensure that AlphaImpute2 does what it claims to do, there is absolutely no guarantee that the results provided are correct. Use of AlphaImpute2 is entirely at your own risk.
 
-
 Program Options
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 
 AlphaImpute2 takes in a number of command line arguments to control the program's behavior. To view a list of arguments, run AlphaImpute2 without any command line arguments, i.e. ``AlphaImpute2`` or ``AlphaImpute2 -h``. 
 
 There are four primary ways to run AlphaImpute2 which differ on whether population or pedigree imputation should be run. The default option is to run both population and pedigree imputation in an integrated algorithm. This will be the option most users will want if they have access to pedigree data on a majority of individuals. The second option is to run population imputation only with the ``-pop_only`` flag. This option should be used if no pedigree data is availible. The third option is to run only pedigree based imputation using the ``-ped_only`` flag. This option is not recommended for general use cases, but may be applicable if (1) there are more than five generations of pedigree data, (2) imputation is done only on the most recent generations, (3) speed is a priority.
 
 The fourth option is to run AlphaImpute2 with the ``-cluster_only``. This option performs AlphaImpute2's array clustering algorithm and outputs the results of the clustering. This option may be useful for debugging how individuals are clustered.
-
 
 Core Arguments 
 --------------
@@ -89,7 +80,8 @@ A pedigree file may be supplied using the ``-pedigree`` option.
 Use the ``-startsnp`` and ``-stopsnp`` comands to run the analysis only on a subset of markers.
 
 Imputation arguments: 
-------------------------
+---------------------
+
 ::
 
     Impute options:
@@ -117,7 +109,7 @@ The binary output option flags the program to write out files in plink binary fo
 The remaining options control how AlphaImpute2 is run.
 
 Pedigree imputation options 
------------------------------
+---------------------------
 ::
 
     Pedigree imputation options:
@@ -126,14 +118,13 @@ Pedigree imputation options
                             Genotype calling threshold for final round of peeling.
                             Default: 0.1 (best guess genotypes).
 
-
 These options control how pedigree imputation is run for either the pedigree only algorithm, or the combined algorithm. ``-cycles`` controls the number of cycles of peeling that are perfromed. An additional very-high-confidence cycle is always performed in addition to the cycles specific here. We recommend using the default value of 4 cycles. Additional cycles seem to provide limited benifit in most pedigrees. 
 
 The ``-final_peeling_threshold`` argument gives the genotype calling threshold for the final round of peeling. This applies to both the pedigree only or the combined algorithm. We recommend either using best guess genotypes (default with a cutoff of 0.1) or high confidence genotypes (with a cutoff of 0.95). Values that cannot be imputed with high enough confidence will be coded as missing.
 
-
 Population imputation options 
----------------------------------
+-----------------------------
+
 ::
 
   Population imputation options:
@@ -173,9 +164,9 @@ Similar to ``-length`` the ``-imputation_length_modifier`` and ``-phasing_length
 
 When AlphaImpute2 is run, multiple particles are merged based on the particle's score in a window centered around each marker. ``phasing_consensus_window_size`` controls the size of the window. Increasing this value can increase imputation accuracy if the low-density panel is very sparse compared to the high-density panel.
 
-
 Joint imputation options 
----------------------------------
+------------------------
+
 ::
 
   Joint imputation options:
@@ -217,7 +208,6 @@ Example: ::
   id2 0 0
   id3 id1 id2
   id4 id1 id2
-
 
 Output file formats
 ~~~~~~~~~~~~~~~~~~~
