@@ -69,6 +69,11 @@ language = "python"
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
+# Global substitutions available to all .rst files
+rst_epilog = """
+.. |Software| replace:: ``AlphaImpute2``
+"""
+
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
 
