@@ -8,7 +8,11 @@ Usage
 Program options
 ===============
 
-|Software| takes in a number of command line arguments to control the program's behavior. To view a list of arguments, run |Software| without any command line arguments, i.e. |Software| or ``AlphaImpute2 -h``. 
+|Software| takes in a number of command line arguments to control the program's behavior. To view a list of arguments, run |Software| without any command line arguments, i.e. |Software|, ``AlphaImpute2 -h``, ``AlphaImpute2 -help`` or ``AlphaImpute2 --help``. 
+
+User can check the version of the program with ``AlphaImpute2 -version``. 
+Remember to use the correct version of the documentation for the version of the program you are using.
+For example, the link to the documentation for version ``v0.0.3`` is https://alphaimpute2.readthedocs.io/en/v0.0.3/.
 
 There are four primary ways to run |Software| which differ on whether population or pedigree imputation should be run. The default option is to run both population and pedigree imputation in an integrated algorithm. This will be the option most users will want if they have access to pedigree data on a majority of individuals. The second option is to run population imputation only with the ``-pop_only`` flag. This option should be used if no pedigree data is availible. The third option is to run only pedigree based imputation using the ``-ped_only`` flag. This option is not recommended for general use cases, but may be applicable if 
 
