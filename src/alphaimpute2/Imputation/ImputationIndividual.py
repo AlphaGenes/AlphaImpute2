@@ -20,8 +20,8 @@ if not ("profile" in globals()):
 
 
 class AlphaImputeIndividual(Pedigree.Individual):
-    def __init__(self, idx, idn):
-        super().__init__(idx, idn)
+    def __init__(self, idx, idn, MetaFounder=None):
+        super().__init__(idx, idn, MetaFounder=None)
 
         self.reverse_view = None
         self.backward_information = None

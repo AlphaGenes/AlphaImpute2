@@ -1,4 +1,5 @@
 import argparse
+import sys
 import numpy as np
 
 from .tinyhouse import Pedigree
@@ -13,10 +14,9 @@ from .Imputation import ArrayClustering
 
 from .tinyhouse.Utils import time_func
 
-# try:
 from .Imputation import version
 
-version_verion = version.version
+version_version = version.version
 
 if not ("profile" in globals()):
 
@@ -239,6 +239,21 @@ def getArgs():
         required=False,
         help=argparse.SUPPRESS,
     )  # help='Flag to prioritze pedigree imputation for individuals at the same genotyping density as their parents.')
+
+    # special handle for version argument to allow it to be called with just -version
+    parser.add_argument(
+        "-version",
+        default=None,
+        action="version",
+        version="%(prog)s " + version_version,
+        help="Show program's version number and exit.",
+    )
+
+    args = sys.argv[1:]
+
+    if "-version" in args:
+        parser.parse_args(args)
+        sys.exit(0)
 
     return InputOutput.parseArgs("AlphaImpute", parser)
 
@@ -472,11 +487,13 @@ def write_seg(pedigree, outputFile):
 
 @time_func("Full Program Run")
 def main():
-    InputOutput.print_boilerplate("AlphaImpute2", version_verion)
     args = getArgs()
+
+    InputOutput.print_boilerplate("AlphaImpute2", version_version)
 
     InputOutput.setNumbaSeeds(12345)
     pedigree = Pedigree.Pedigree(constructor=ImputationIndividual.AlphaImputeIndividual)
+    args.main_metafounder = "MF_1"
     read_in_data(pedigree, args)
     for ind in pedigree:
         ind.map_length = args.length
