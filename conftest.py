@@ -2,6 +2,7 @@ import pytest
 import operator
 import os
 import shutil
+import warnings
 import numpy as np
 
 
@@ -50,13 +51,22 @@ def pytest_runtest_makereport():
             num_file = 3
         else:
             num_file = 2
-        accu = stdout[-1][-1].split("\n")[-(2 + 3 * num_file) :]
-        name = accu[0].split()[-1]
-        with open("tests/accuracy_tests/accu_report.txt", "a") as file:
-            for i in range(num_file):
-                assessed_file = accu[i * 3 + 1].split()[-1]
-                file.write(name + " " + assessed_file + " " + accu[i * 3 + 2] + "\n")
-                file.write(name + " " + assessed_file + " " + accu[i * 3 + 3] + "\n")
+        try:
+            accu = stdout[-1][-1].split("\n")[-(2 + 3 * num_file) :]
+            name = accu[0].split()[-1]
+            with open("tests/accuracy_tests/accu_report.txt", "a") as file:
+                for i in range(num_file):
+                    assessed_file = accu[i * 3 + 1].split()[-1]
+                    file.write(
+                        name + " " + assessed_file + " " + accu[i * 3 + 2] + "\n"
+                    )
+                    file.write(
+                        name + " " + assessed_file + " " + accu[i * 3 + 3] + "\n"
+                    )
+        except IndexError:
+            warnings.warn(
+                "Some outputs may be missing for the generation for the accuracy report. You can check tests/accuracy_tests/accu_report.txt for the recorded accuracies or rerun the tests. "
+            )
 
 
 @pytest.hookimpl()
@@ -88,7 +98,15 @@ def pytest_terminal_summary(terminalreporter):
         "Gen5 Accu",
     )
     dt = {"names": columns, "formats": ("U76", "U28", "U25") + ("f4",) * (nGen + 1)}
-    accu = np.loadtxt("tests/accuracy_tests/accu_report.txt", encoding=None, dtype=dt)
+    try:
+        accu = np.loadtxt(
+            "tests/accuracy_tests/accu_report.txt", encoding=None, dtype=dt
+        )
+    except ValueError:
+        warnings.warn(
+            "Some outputs may be missing for the generation for the accuracy report. You can check tests/accuracy_tests/accu_report.txt for the recorded accuracies or rerun the tests. "
+        )
+        return
 
     mkr_accu = list(
         filter(
