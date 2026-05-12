@@ -216,7 +216,6 @@ def call_genotypes(ind, final_cutoff, error_rate):
 
             # Calculate anterior from the parents.
 
-            genotypeProbabilities = ind.peeling_view.genotypeProbabilities
             anterior = getAnterior(
                 ind.peeling_view, ind.sire.peeling_view, ind.dam.peeling_view
             )
