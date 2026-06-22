@@ -83,9 +83,9 @@ def make_directory(path):
     os.mkdir(path)
 
 
-def get_marker_accu(output, real):
+def get_marker_corr(output, real):
     """
-    Get marker accuracy between the output and the real data
+    Get marker Pearson correlation between the output and the real data
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -95,9 +95,9 @@ def get_marker_accu(output, real):
         return round(np.nanmean(accus), 3)
 
 
-def get_ind_accu(output, real, nIndPerGen, n_row_per_ind, gen=None):
+def get_ind_corr(output, real, nIndPerGen, n_row_per_ind, gen=None):
     """
-    Get individual accuracy between the output and the real data
+    Get individual Peason correlation between the output and the real data
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -105,15 +105,31 @@ def get_ind_accu(output, real, nIndPerGen, n_row_per_ind, gen=None):
             [np.corrcoef(real[i, :], output[i, :])[0, 1] for i in range(real.shape[0])]
         )
         if type(gen) == int:
-            accus = accus[
-                gen
-                * (nIndPerGen * n_row_per_ind) : (gen + 1)
-                * (nIndPerGen * n_row_per_ind)
-            ]
+            accus = accus[gen * (nIndPerGen * n_row_per_ind) :]
         return round(np.nanmean(accus), 3)
 
 
-def assess_peeling(sim_path, get_params, output_path, name, method, x_chr=False):
+def get_abs_diff(output, real, n_row_per_ind):
+    """
+    Sum of absolute difference divided by the norm of the number of loci being counted
+    """
+    return n_row_per_ind * np.sum(np.abs(output - real)) / real.size
+
+
+def get_correct_rate(output, real):
+    """
+    Summing up the probabilities of the true state from the output data
+    divided by the number of loci being counted
+
+    :param output: Output data
+    :type output: ndarray
+    :param real: Real simulated data
+    :type real: ndarray
+    """
+    return np.sum(output[real == 1]) / (np.size(real) / 4)
+
+
+def assess_peeling(sim_path, get_params, output_path, method, file_out, x_chr=False):
     """
     Assess the performance of the peeling
     """
@@ -125,13 +141,14 @@ def assess_peeling(sim_path, get_params, output_path, name, method, x_chr=False)
     if method in ["ped_only", "combined"]:
         file_to_check.append("segregation")
 
+    if x_chr:
+        method += "_x_chr"
+
     nGen = int(get_params["nGen"])
     nIndPerGen = int(get_params["nInd"] / nGen)
     nLociAll = int(get_params["nLociAll"])
 
     true_prefix = "true-X_chr_" if x_chr else "true-"
-    print(" ")
-    print(f"Test: {name}")
 
     for file in file_to_check:
         if file == "genotypes":
@@ -148,46 +165,60 @@ def assess_peeling(sim_path, get_params, output_path, name, method, x_chr=False)
         new_file = np.loadtxt(file_path, usecols=np.arange(1, nLociAll + 1))
         true_file = np.loadtxt(true_path, usecols=np.arange(1, nLociAll + 1))
 
-        print(f"File: {file}")
+        if file == "segregation":
+            marker_corr = get_marker_corr(
+                new_file[2 * (nIndPerGen * n_row_per_ind) :, 1:],
+                true_file[2 * (nIndPerGen * n_row_per_ind) :, 1:],
+            )
+        else:
+            marker_corr = get_marker_corr(new_file[:, 1:], true_file[:, 1:])
 
-        Marker_accu = [str(get_marker_accu(new_file[:, 1:], true_file[:, 1:]))]
-        for gen in range(nGen):
-            Marker_accu.append(
-                str(
-                    get_marker_accu(
-                        new_file[
-                            gen
-                            * (nIndPerGen * n_row_per_ind) : (gen + 1)
-                            * (nIndPerGen * n_row_per_ind)
-                        ],
-                        true_file[
-                            gen
-                            * (nIndPerGen * n_row_per_ind) : (gen + 1)
-                            * (nIndPerGen * n_row_per_ind)
-                        ],
-                    )
-                )
+        file_out.write(f"{file},{method},marker_corr,{marker_corr}\n")
+
+        if file == "segregation":
+            ind_corr = get_ind_corr(
+                new_file[:, 1:],
+                true_file[:, 1:],
+                nIndPerGen,
+                n_row_per_ind,
+                2,
+            )
+        else:
+            ind_corr = get_ind_corr(
+                new_file[:, 1:],
+                true_file[:, 1:],
+                nIndPerGen,
+                n_row_per_ind,
             )
 
-        print("Marker_accuracies", " ".join(Marker_accu))
+        file_out.write(f"{file},{method},ind_corr,{ind_corr}\n")
 
-        Ind_accu = [
-            str(get_ind_accu(new_file[:, 1:], true_file[:, 1:], nIndPerGen, None))
-        ]
-        for gen in range(nGen):
-            Ind_accu.append(
-                str(
-                    get_ind_accu(
-                        new_file[:, 1:],
-                        true_file[:, 1:],
-                        nIndPerGen,
-                        n_row_per_ind,
-                        gen,
-                    )
-                )
+        if file == "segregation":
+            abs_diff = get_abs_diff(
+                new_file[2 * (nIndPerGen * n_row_per_ind) :, 1:],
+                true_file[2 * (nIndPerGen * n_row_per_ind) :, 1:],
+                n_row_per_ind,
             )
 
-        print("Individual_accuracies", " ".join(Ind_accu))
+        else:
+            if file == "haplotypes":
+                new_file[true_file == 9] = 0
+                true_file[true_file == 9] = 0
+
+            abs_diff = get_abs_diff(
+                new_file[:, 1:],
+                true_file[:, 1:],
+                n_row_per_ind,
+            )
+
+        file_out.write(f"{file},{method},abs_diff,{abs_diff}\n")
+
+        if file == "segregation":
+            correct_rate = get_correct_rate(
+                new_file[2 * (nIndPerGen * n_row_per_ind) :, 1:],
+                true_file[2 * (nIndPerGen * n_row_per_ind) :, 1:],
+            )
+            file_out.write(f"{file},{method},correct_rate,{correct_rate}\n")
 
 
 @pytest.mark.parametrize(
@@ -236,7 +267,11 @@ def test_accu(
 
     benchmark(run_command, command)
 
-    assess_peeling(sim_path, get_params, output_path, name, method)
+    file_out = open("tests/accuracy_tests/accu_report.txt", "a")
+
+    assess_peeling(sim_path, get_params, output_path, method, file_out)
+
+    file_out.close()
 
 
 # ── X chromosome accuracy test ───────────────────────────────────────────────
@@ -270,4 +305,8 @@ def test_sex_accu(get_params, method, sim_path, benchmark):
 
     benchmark(os.system, command)
 
-    assess_peeling(sim_path, get_params, output_path, name, method, x_chr=True)
+    file_out = open("tests/accuracy_tests/accu_report.txt", "a")
+
+    assess_peeling(sim_path, get_params, output_path, method, file_out, x_chr=True)
+
+    file_out.close()
