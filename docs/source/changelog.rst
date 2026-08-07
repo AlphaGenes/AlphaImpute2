@@ -2,6 +2,18 @@
 Changelog
 =========
 
+[0.0.5] - 2026-08-07
+====================
+
+Maintenance
+-----------
+
+* Restore the memory efficiency with
+    * Optional segregation probabilities storage and 
+    * Reduced memory usage for genotype probabilities
+    (:pr:`75`, :user:`XingerTang`, :user:`gregorgorjanc`).
+
+
 [0.0.4] - 2026-06-12
 ====================
 
