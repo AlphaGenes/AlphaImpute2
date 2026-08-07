@@ -4,9 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "AlphaImpute2"
-version = "0.0.4"
+version = "0.0.5"
 authors = [
-  { name="Andrew Whalen", email="alphagenes.dev@gmail.com" },
+  { name="Andrew Whalen" },
+  { name="Xinger Tang", email="alphagenes.dev@gmail.com" },
+  { name="Rosalind Craddock", email="alphagenes.dev@gmail.com" },
+  { name="Yu Zhang", email="alphagenes.dev@gmail.com" },
+  { name="Gregor Gorjanc", email="alphagenes.dev@gmail.com" },
+]
+maintainers = [
+  { name="Xinger Tang", email="alphagenes.dev@gmail.com" },
+  { name="Gregor Gorjanc", email="alphagenes.dev@gmail.com" },
 ]
 description = "An imputation software for massive livestock populations."
 # readme corresponds to the long_description

@@ -56,9 +56,7 @@ def runHeuristicPeeling(pedigree, args, final_cutoff=0.3):
     for ind in pedigree:
         call_genotypes(ind, final_cutoff, args.error)
 
-    # Clear peeling view from all individuals to reduce memory impact.
-    # for ind in pedigree:
-    # ind.peeling_view = None
+    clearPeelingViewsIfNotNeeded(pedigree, args)
 
 
 @profile
@@ -127,9 +125,7 @@ def run_integrated_peeling(pedigree, args, final_cutoff=0.3, arrays=None):
     for ind in ld_for_ped_imputation:
         ind.restore_original_genotypes()
 
-    # Clear peeling view from all individuals to reduce memory impact.
-    # for ind in pedigree:
-    # ind.peeling_view = None
+    clearPeelingViewsIfNotNeeded(pedigree, args)
 
     return hd_individuals, ld_for_pop_imputation, ld_for_ped_imputation
 
@@ -179,14 +175,28 @@ def mask_genotypes(mat, mask):
 
 def setupHeuristicPeeling(pedigree, args):
     # Sets the founder anterior values and penetrance value for Heuristic peeling.
+
+    seg_output = bool(args.seg_output)
     for ind in pedigree:
-        ind.setPeelingView()
+        ind.setPeelingView(store_out_segregation=seg_output)
+
+
+def clearPeelingViewsIfNotNeeded(pedigree, args):
+    if args.seg_output:
+        return
+
+    # Segregation output is written from the peeling view, so only release it when
+    # the output will not be requested later.
+    for ind in pedigree:
+        ind.peeling_view = None
 
 
 def call_genotypes(ind, final_cutoff, error_rate):
     # NOTE: THIS WORKS BUT REQUIRES SETTING THESE IN PEDIGREE "PEEL DOWN" ORDER
     # IF NOT, PARENT'S ANTERIOR VALUES MAY NOT BE CORRECTLY SET.
     # FIX: RUN FINAL ROUND OF PEEL DOWN AT THE END.
+
+    phase_probabilities = None
 
     if ind.peeling_view.has_offspring:
         if ind.sire is not None and ind.dam is not None:
@@ -202,6 +212,8 @@ def call_genotypes(ind, final_cutoff, error_rate):
         else:
             # If no parents, directly set genotypes from the penetrance field.
             ind.peeling_view.setGenotypesAll(final_cutoff)
+
+        phase_probabilities = ind.peeling_view.genotypeProbabilities
 
     else:
         nLoci = len(ind.genotypes)
@@ -224,6 +236,7 @@ def call_genotypes(ind, final_cutoff, error_rate):
         ind.peeling_view.setGenotypesFromGenotypeProbabilities(
             genotypeProbabilities, final_cutoff
         )
+        phase_probabilities = genotypeProbabilities
 
     if final_cutoff < 0.5:
         nLoci = len(ind.genotypes)
@@ -231,7 +244,7 @@ def call_genotypes(ind, final_cutoff, error_rate):
             if ind.genotypes[i] == 1:
                 if ind.haplotypes[0][i] + ind.haplotypes[1][i] != 1:
                     # correct the genotype-haplotype mismatch
-                    phase_probs = ind.peeling_view.genotypeProbabilities[1:3, i]
+                    phase_probs = phase_probabilities[1:3, i]
                     phase = np.argmax(phase_probs)
                     ind.haplotypes[0][i] = phase
                     ind.haplotypes[1][i] = 1 - phase
@@ -524,7 +537,8 @@ def setSegregation(ind, sire, dam):
         pointEstimates, 1.0 / nLoci * ind.map_length
     )  # This is where different map lengths could be added.
 
-    ind.out_segregation = smoothedEstimates.copy()
+    if ind.store_out_segregation:
+        ind.out_segregation = smoothedEstimates.copy()
 
     # Then set the segregation values for the individual.
     ind.segregation[0][:] = smoothedEstimates[2, :] + smoothedEstimates[3, :]
