@@ -189,8 +189,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         # self.setPhasingView()
         # self.setPeelingView()
 
-    def setPeelingView(self):
-        # Set the
+    def setPeelingView(self, store_out_segregation=False):
         if self.genotypes is None or self.haplotypes is None:
             raise ValueError(
                 "In order to create a jit_Peeling_Individual both the genotypes and haplotypes need to be created."
@@ -214,6 +213,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
             has_parents,
             nLoci,
             self.map_length,
+            store_out_segregation,
         )
 
     def setPhasingView(self):
@@ -446,6 +446,7 @@ spec["segregation"] = numba.typeof(
     (np.array([0, 1], dtype=np.float32), np.array([0], dtype=np.float32))
 )
 spec["out_segregation"] = optional(float32[:, :])
+spec["store_out_segregation"] = boolean
 
 spec["newPosterior"] = optional(numba.typeof([np.full((4, 100), 0, dtype=np.float32)]))
 
@@ -468,7 +469,15 @@ class jit_Peeling_Individual(object):
     """
 
     def __init__(
-        self, idn, genotypes, haplotypes, has_offspring, has_parents, nLoci, map_length
+        self,
+        idn,
+        genotypes,
+        haplotypes,
+        has_offspring,
+        has_parents,
+        nLoci,
+        map_length,
+        store_out_segregation,
     ):
         self.nLoci = nLoci
         self.idn = idn
@@ -476,6 +485,7 @@ class jit_Peeling_Individual(object):
         self.haplotypes = haplotypes
 
         self.map_length = map_length
+        self.store_out_segregation = store_out_segregation
 
         # Initial value for segregation is .5 to represent uncertainty between haplotype inheritance.
         self.segregation = (
@@ -483,23 +493,32 @@ class jit_Peeling_Individual(object):
             np.full(nLoci, 0.5, dtype=np.float32),
         )
 
-        self.out_segregation = np.full((4, nLoci), 0.25, dtype=np.float32)
+        if self.store_out_segregation:
+            self.out_segregation = np.full((4, nLoci), 0.25, dtype=np.float32)
+        else:
+            self.out_segregation = None
 
         # Create the posterior terms.
         self.has_offspring = has_offspring
         self.has_parents = has_parents
 
-        self.original_genotypes = self.genotypes.copy()
-        self.original_haplotypes = (
-            self.haplotypes[0].copy(),
-            self.haplotypes[1].copy(),
-        )
+        if self.has_offspring:
+            self.original_genotypes = self.genotypes.copy()
+            self.original_haplotypes = (
+                self.haplotypes[0].copy(),
+                self.haplotypes[1].copy(),
+            )
+            self.posterior = np.full((4, nLoci), 1, dtype=np.float32)
+            self.genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
+        else:
+            self.original_genotypes = self.genotypes
+            self.original_haplotypes = self.haplotypes
+            self.posterior = np.full((0, 0), 1, dtype=np.float32)
+            self.genotypeProbabilities = np.full((0, 0), 1, dtype=np.float32)
+
         self.anterior_availible = False
         self.posterior_open = False
-        self.posterior = np.full((4, nLoci), 1, dtype=np.float32)
         self.anterior = np.full((0, 0), 1, dtype=np.float32)
-
-        self.genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
 
         self.newPosterior = None
 
@@ -706,7 +725,8 @@ class jit_Peeling_Individual(object):
     def setGenotypesFromGenotypeProbabilities(self, finalGenotypes, cutoff):
         nLoci = self.nLoci
         normalize(finalGenotypes)
-        self.genotypeProbabilities[:, :] = finalGenotypes
+        if self.has_offspring:
+            self.genotypeProbabilities[:, :] = finalGenotypes
 
         # set genotypes/haplotypes from this value.
         for i in range(nLoci):
