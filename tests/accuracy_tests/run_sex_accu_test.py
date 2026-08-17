@@ -1,4 +1,5 @@
 import os
+
 import pytest
 
 from accu_test_utils import (
@@ -17,18 +18,14 @@ from accu_test_utils import (
         ("combined"),
     ],
 )
-def test_accu(
-    get_params,
-    method,
-    sim_path,
-    benchmark,
-):
+def test_sex_accu(get_params, method, sim_path, benchmark):
     name = "_".join(
         [
             param
             for param in filter(
                 lambda param: True if param else False,
                 [
+                    "x_chr",
                     method,
                 ],
             )
@@ -37,26 +34,12 @@ def test_accu(
     output_path = generate_output_path(name)
     prepare_path(output_path)
 
-    command = generate_command(
-        sim_path,
-        method,
-        output_path,
-    )
+    command = generate_command(sim_path, method, output_path, x_chr=True)
 
-    def run_command(cmd):
-        exit_code = os.system(cmd)
-        if exit_code == 11:
-            import glob
-
-            outputs = glob.glob(os.path.join(output_path, "test.*"))
-            if outputs:
-                return  # output was written, crash was in cleanup only
-        assert exit_code == 0, f"AlphaImpute2 failed with exit code {exit_code}"
-
-    benchmark(run_command, command)
+    benchmark(os.system, command)
 
     file_out = open("tests/accuracy_tests/accu_report.txt", "a")
 
-    assess_peeling(sim_path, get_params, output_path, method, file_out)
+    assess_peeling(sim_path, get_params, output_path, method, file_out, x_chr=True)
 
     file_out.close()

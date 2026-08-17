@@ -153,7 +153,7 @@ def getArgs():
         "-x_chr",
         action="store_true",
         required=False,
-        help="A flag to indicate that input data is for a sex chromosome. Sex needs to be given in the pedigree file.",
+        help="A flag to indicate that input data is for the X chromosome. Sex needs to be given in the pedigree file.",
     )
 
     pedigree_parser = parser.add_argument_group("Pedigree imputation options")

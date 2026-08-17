@@ -22,6 +22,15 @@ if not ("profile" in globals()):
 def get_reference_library(
     individuals, individual_exclusion=False, reverse=False, x_chr=False
 ):
+    if x_chr:
+        return get_reference_library_x(individuals, individual_exclusion, reverse)
+    return get_reference_library_autosome(individuals, individual_exclusion, reverse)
+
+
+@profile
+def get_reference_library_autosome(
+    individuals, individual_exclusion=False, reverse=False
+):
     # Construct a library, and add individuals to it.
     # individual_exclusion adds a flag to record who's haplotype is in the library, so that the haplotype can be removed when phasing that individual.
     # setup: Determins whether the BW library is set up, or if just a base library is created. This can be useful if the library needs to be sub-setted before being used.
@@ -30,11 +39,7 @@ def get_reference_library(
     haplotype_library = BurrowsWheelerLibrary.BurrowsWheelerLibrary()
 
     for ind in individuals:
-        if x_chr and ind.sex == 0:
-            haplotypes = [ind.current_haplotypes[1]]  # only the X haplotype
-        else:
-            haplotypes = ind.current_haplotypes
-        for hap in haplotypes:
+        for hap in ind.current_haplotypes:
             # Unless set to something else, ind.current_haplotypes tracks ind.haplotypes.
             if reverse:
                 new_hap = np.ascontiguousarray(np.flip(hap))
@@ -50,6 +55,30 @@ def get_reference_library(
     return haplotype_library
 
 
+@profile
+def get_reference_library_x(individuals, individual_exclusion=False, reverse=False):
+    # Construct an X-chromosome library. Males contribute only their X haplotype.
+    haplotype_library = BurrowsWheelerLibrary.BurrowsWheelerLibrary()
+
+    for ind in individuals:
+        if ind.sex == 0:
+            haplotypes = [ind.current_haplotypes[1]]
+        else:
+            haplotypes = ind.current_haplotypes
+        for hap in haplotypes:
+            if reverse:
+                new_hap = np.ascontiguousarray(np.flip(hap))
+            else:
+                new_hap = np.ascontiguousarray(hap.copy())
+
+            if individual_exclusion:
+                haplotype_library.append(new_hap, ind)
+            else:
+                haplotype_library.append(new_hap)
+
+    return haplotype_library
+
+
 def run_phasing(individuals, cycles, args):
     # Runs phasing cycles. Note: All backward cycles are run before running the forward cycles.
     # I tried running it with running forward/backward/forward/backward,
@@ -57,7 +86,10 @@ def run_phasing(individuals, cycles, args):
 
     print("")
     print("Backwards phasing cycles.")
-    rev_individuals = setup_reverse_individuals(individuals)
+    if args.x_chr:
+        rev_individuals = setup_reverse_individuals_x(individuals)
+    else:
+        rev_individuals = setup_reverse_individuals(individuals)
     create_library_and_phase(rev_individuals, cycles, args)
     integrate_reverse_individuals(individuals)
     rev_individuals = None
@@ -69,6 +101,14 @@ def run_phasing(individuals, cycles, args):
 
 def setup_reverse_individuals(individuals):
     rev_individuals = [ind.reverse_individual() for ind in individuals]
+    # Run reverse pass
+    for rev_ind in rev_individuals:
+        rev_ind.setPhasingView()
+    return rev_individuals
+
+
+def setup_reverse_individuals_x(individuals):
+    rev_individuals = [ind.reverse_individual_x() for ind in individuals]
     # Run reverse pass
     for rev_ind in rev_individuals:
         rev_ind.setPhasingView()
@@ -99,14 +139,19 @@ def create_library_and_phase(individuals, cycles, args):
 @profile
 def phase_round(individuals, set_haplotypes=False, n_samples=40, args=None):
     x_chr = args.x_chr if args is not None else False
-    bw_library = get_reference_library(
-        individuals, individual_exclusion=True, x_chr=x_chr
-    )
+    if x_chr:
+        phase_individual_function = phase_individual_x
+        bw_library = get_reference_library_x(individuals, individual_exclusion=True)
+    else:
+        phase_individual_function = phase_individual_autosome
+        bw_library = get_reference_library_autosome(
+            individuals, individual_exclusion=True
+        )
     bw_library.setup_library(create_reverse_library=True, create_a=False)
 
     if InputOutput.args.maxthreads <= 1:
         for individual in individuals:
-            phase_individual(
+            phase_individual_function(
                 individual,
                 bw_library,
                 set_haplotypes=set_haplotypes,
@@ -119,7 +164,7 @@ def phase_round(individuals, set_haplotypes=False, n_samples=40, args=None):
             max_workers=InputOutput.args.maxthreads
         ) as executor:
             executor.map(
-                phase_individual,
+                phase_individual_function,
                 individuals,
                 repeat(bw_library),
                 repeat(set_haplotypes),
@@ -128,10 +173,23 @@ def phase_round(individuals, set_haplotypes=False, n_samples=40, args=None):
             )
 
 
-def phase_individual(
+def phase_individual_autosome(
     individual, haplotype_library, set_haplotypes, n_samples, map_length
 ):
-    phase(
+    phase_autosome(
+        individual,
+        haplotype_library,
+        set_haplotypes=set_haplotypes,
+        imputation=False,
+        n_samples=n_samples,
+        map_length=map_length,
+    )
+
+
+def phase_individual_x(
+    individual, haplotype_library, set_haplotypes, n_samples, map_length
+):
+    phase_x(
         individual,
         haplotype_library,
         set_haplotypes=set_haplotypes,
@@ -147,13 +205,13 @@ def get_random_values(individual, library, n_samples):
     return random_values
 
 
-def phase(
+def phase_autosome(
     individual, haplotype_library, set_haplotypes, imputation, n_samples, map_length
 ):
     # Random values ensures that phasing is consistent per individual
     random_values = get_random_values(individual, haplotype_library.library, n_samples)
     individual.phasing_view.setup_penetrance()
-    phase_jit(
+    phase_jit_autosome(
         individual.phasing_view,
         haplotype_library.library,
         set_haplotypes,
@@ -166,8 +224,63 @@ def phase(
     individual.phasing_view.clear_penetrance()
 
 
+def phase_x(
+    individual, haplotype_library, set_haplotypes, imputation, n_samples, map_length
+):
+    if individual.phasing_view.sex == 0:
+        phase_x_male(
+            individual,
+            haplotype_library,
+            set_haplotypes,
+            imputation,
+            n_samples,
+            map_length,
+        )
+    else:
+        phase_x_female(
+            individual,
+            haplotype_library,
+            set_haplotypes,
+            imputation,
+            n_samples,
+            map_length,
+        )
+
+
+def phase_x_male(
+    individual, haplotype_library, set_haplotypes, imputation, n_samples, map_length
+):
+    # Random values ensures that phasing is consistent per individual
+    random_values = get_random_values(individual, haplotype_library.library, n_samples)
+    individual.phasing_view.setup_penetrance_x()
+    phase_jit_x(
+        individual.phasing_view,
+        haplotype_library.library,
+        set_haplotypes,
+        imputation,
+        n_samples,
+        random_values,
+        map_length,
+        InputOutput.args.phasing_consensus_window_size,
+    )
+    individual.phasing_view.clear_penetrance()
+
+
+def phase_x_female(
+    individual, haplotype_library, set_haplotypes, imputation, n_samples, map_length
+):
+    phase_autosome(
+        individual,
+        haplotype_library,
+        set_haplotypes,
+        imputation,
+        n_samples,
+        map_length,
+    )
+
+
 @jit(nopython=True, nogil=True)
-def phase_jit(
+def get_phasing_sample_container(
     ind,
     haplotype_library,
     set_haplotypes,
@@ -175,14 +288,7 @@ def phase_jit(
     n_samples,
     random_values,
     map_length,
-    phasing_consensus_window_size,
 ):
-    # Phases a specific individual.
-    # Set_haplotypes determines whether or not to actually set the haplotypes of an individual based on the underlying samples.
-    # Set_haploypes also determines whether forward_geno_probs gets calculated.
-
-    # FLAG: error_rate is hard coded.
-
     nLoci = haplotype_library.nLoci
     rate = map_length / nLoci
 
@@ -195,7 +301,9 @@ def phase_jit(
 
     error_rate = 0.01
 
-    sample_container = PhasingObjects.PhasingSampleContainer(haplotype_library, ind)
+    sample_container = PhasingObjects.PhasingSampleContainerAutosome(
+        haplotype_library, ind
+    )
     for i in range(n_samples):
         # This is the main imputation step.
         sample_container.add_sample(
@@ -206,67 +314,189 @@ def phase_jit(
             random_values[i, :],
         )
 
+    return sample_container
+
+
+@jit(nopython=True, nogil=True)
+def get_phasing_sample_container_x(
+    ind,
+    haplotype_library,
+    set_haplotypes,
+    imputation,
+    n_samples,
+    random_values,
+    map_length,
+):
+    nLoci = haplotype_library.nLoci
+    rate = map_length / nLoci
+
+    if imputation:
+        calculate_forward_estimates = True
+        track_hap_info = True
+    else:
+        calculate_forward_estimates = set_haplotypes
+        track_hap_info = False
+
+    error_rate = 0.01
+
+    sample_container = PhasingObjects.PhasingSampleContainerX(haplotype_library, ind)
+    for i in range(n_samples):
+        # This is the main imputation step.
+        sample_container.add_sample_x(
+            rate,
+            error_rate,
+            calculate_forward_estimates,
+            track_hap_info,
+            random_values[i, :],
+        )
+
+    return sample_container
+
+
+@jit(nopython=True, nogil=True)
+def add_sample_forward_estimates_to_backward(ind, sample_container):
+    ind.backward[:, :] = 0
+    for sample in sample_container.samples:
+        ind.backward += sample.forward.forward_geno_probs
+
+
+@jit(nopython=True, nogil=True)
+def add_imputation_forward_estimates_to_backward(
+    ind, haplotype_library, sample_container
+):
+    backward = ind.backward
+
+    # Only update loci that were considered as part of the haplotype library.
+    for index in haplotype_library.loci:
+        for j in range(4):
+            backward[j, index] = 0.0
+
+        for sample in sample_container.samples:
+            for j in range(4):
+                backward[j, index] += sample.forward.forward_geno_probs[j, index]
+
+
+@jit(nopython=True, nogil=True)
+def phase_jit_x(
+    ind,
+    haplotype_library,
+    set_haplotypes,
+    imputation,
+    n_samples,
+    random_values,
+    map_length,
+    phasing_consensus_window_size,
+):
+    # Phases a male X chromosome path.
+    sample_container = get_phasing_sample_container_x(
+        ind,
+        haplotype_library,
+        set_haplotypes,
+        imputation,
+        n_samples,
+        random_values,
+        map_length,
+    )
+
     if imputation:
         # For imputation phasing is only run on a subset of loci.
         # This step extends the phase information to all of the loci.
         converted_samples = [
-            expand_sample(ind, sample, haplotype_library)
+            expand_sample_x(ind, sample, haplotype_library)
             for sample in sample_container.samples
         ]
-        extended_sample_container = PhasingObjects.PhasingSampleContainer(
+        extended_sample_container = PhasingObjects.PhasingSampleContainerX(
             haplotype_library, ind
         )
         extended_sample_container.samples = converted_samples
-        pat_hap, mat_hap = extended_sample_container.get_consensus(
-            phasing_consensus_window_size, ind.isXChr, ind.sex
+        pat_hap, mat_hap = extended_sample_container.get_consensus_x(
+            phasing_consensus_window_size
         )
 
     else:
-        pat_hap, mat_hap = sample_container.get_consensus(
-            phasing_consensus_window_size, ind.isXChr, ind.sex
+        pat_hap, mat_hap = sample_container.get_consensus_x(
+            phasing_consensus_window_size
         )
 
     if not imputation and set_haplotypes:
         if ind.population_imputation_target:
             # If phasing, and individual is a target for imputation, set their haplotypes.
-            if ind.isXChr and ind.sex == 0:
-                add_haplotypes_to_ind_xchr_male(ind, mat_hap)
-            else:
-                add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+            add_haplotypes_to_ind_xchr_male(ind, mat_hap)
 
-        ind.backward[:, :] = 0
-        for sample in sample_container.samples:
-            ind.backward += (
-                sample.forward.forward_geno_probs
-            )  # We're really just averaging over particles.
+        add_sample_forward_estimates_to_backward(ind, sample_container)
 
     if imputation:
-        if ind.isXChr and ind.sex == 0:
-            add_haplotypes_to_ind_xchr_male(ind, mat_hap)
-        else:
-            add_haplotypes_to_ind(ind, pat_hap, mat_hap)
-        backward = (
-            ind.backward
-        )  # Not sure why we need to set a secondary variable here, but it turns out we do, otherwise ind.backward doesn't update correctly.
-
-        # Only update loci that were considered as part of the haplotype library.
-        for index in haplotype_library.loci:
-            for j in range(4):
-                backward[j, index] = 0.0
-
-            for sample in sample_container.samples:
-                for j in range(4):
-                    backward[j, index] += sample.forward.forward_geno_probs[
-                        j, index
-                    ]  # We're really just averaging over particles.
+        add_haplotypes_to_ind_xchr_male(ind, mat_hap)
+        add_imputation_forward_estimates_to_backward(
+            ind, haplotype_library, sample_container
+        )
 
     # Always set current_haplotype after the last round of phasing.
-    if ind.isXChr and ind.sex == 0:
-        ind.current_haplotypes[0][:] = 0
-        ind.current_haplotypes[1][:] = mat_hap
+    ind.current_haplotypes[0][:] = 9
+    ind.current_haplotypes[1][:] = mat_hap
+
+
+@jit(nopython=True, nogil=True)
+def phase_jit_autosome(
+    ind,
+    haplotype_library,
+    set_haplotypes,
+    imputation,
+    n_samples,
+    random_values,
+    map_length,
+    phasing_consensus_window_size,
+):
+    # Phases a specific individual on the autosomal path.
+    # Set_haplotypes determines whether or not to actually set the haplotypes
+    # and whether forward_geno_probs gets calculated.
+
+    sample_container = get_phasing_sample_container(
+        ind,
+        haplotype_library,
+        set_haplotypes,
+        imputation,
+        n_samples,
+        random_values,
+        map_length,
+    )
+
+    if imputation:
+        # For imputation phasing is only run on a subset of loci.
+        # This step extends the phase information to all of the loci.
+        converted_samples = [
+            expand_sample_autosome(ind, sample, haplotype_library)
+            for sample in sample_container.samples
+        ]
+        extended_sample_container = PhasingObjects.PhasingSampleContainerAutosome(
+            haplotype_library, ind
+        )
+        extended_sample_container.samples = converted_samples
+        pat_hap, mat_hap = extended_sample_container.get_consensus_autosome(
+            phasing_consensus_window_size
+        )
+
     else:
-        ind.current_haplotypes[0][:] = pat_hap
-        ind.current_haplotypes[1][:] = mat_hap
+        pat_hap, mat_hap = sample_container.get_consensus_autosome(
+            phasing_consensus_window_size
+        )
+
+    if not imputation and set_haplotypes:
+        if ind.population_imputation_target:
+            # If phasing, and individual is a target for imputation, set their haplotypes.
+            add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+
+        add_sample_forward_estimates_to_backward(ind, sample_container)
+
+    if imputation:
+        add_haplotypes_to_ind(ind, pat_hap, mat_hap)
+        add_imputation_forward_estimates_to_backward(
+            ind, haplotype_library, sample_container
+        )
+
+    # Always set current_haplotype after the last round of phasing.
+    ind.current_haplotypes[0][:] = pat_hap
+    ind.current_haplotypes[1][:] = mat_hap
 
 
 @jit(nopython=True, nogil=True)
@@ -285,7 +515,40 @@ def add_haplotypes_to_ind_xchr_male(ind, mat_hap):
 
 
 @jit(nopython=True, nogil=True)
-def expand_sample(ind, sample, bw_library):
+def make_expanded_sample(sample, pat_hap, mat_hap, genotypes, bw_library):
+    new_sample = PhasingObjects.PhasingSample(sample.rec_rate, sample.error_rate)
+    new_sample.haplotypes = (pat_hap, mat_hap)
+    new_sample.genotypes = genotypes
+
+    # Sets the recombination score for the expanded sample.
+    # Recombination scores are just applied to the corresponding loci in the global set of markers.
+    # Missing markers on the chip, have a recombination score of 0.
+    new_sample.rec = expand_rec_tracking(sample.rec, bw_library)
+
+    return new_sample
+
+
+@jit(nopython=True, nogil=True)
+def expand_sample_x(ind, sample, bw_library):
+    nLoci = len(ind.genotypes)
+
+    pat_hap = np.full(nLoci, 9, dtype=np.int8)
+    mat_hap = np.full(nLoci, 9, dtype=np.int8)
+
+    hap_info = sample.hap_info
+
+    # Fill in the missing loci for phasing.
+    for i in range(len(hap_info.mat_ranges)):
+        range_object = hap_info.mat_ranges[i]
+        global_start, global_stop = hap_info.get_global_bounds(i, 1)
+
+        set_hap_from_range(range_object, mat_hap, global_start, global_stop, bw_library)
+
+    return make_expanded_sample(sample, pat_hap, mat_hap, mat_hap, bw_library)
+
+
+@jit(nopython=True, nogil=True)
+def expand_sample_autosome(ind, sample, bw_library):
     nLoci = len(ind.genotypes)
 
     pat_hap = np.full(nLoci, 9, dtype=np.int8)
@@ -308,16 +571,7 @@ def expand_sample(ind, sample, bw_library):
 
         set_hap_from_range(range_object, mat_hap, global_start, global_stop, bw_library)
 
-    new_sample = PhasingObjects.PhasingSample(sample.rec_rate, sample.error_rate)
-    new_sample.haplotypes = (pat_hap, mat_hap)
-    new_sample.genotypes = pat_hap + mat_hap
-
-    # Sets the recombination score for the expanded sample.
-    # Recombination scores are just applied to the corresponding loci in the global set of markers.
-    # Missing markers on the chip, have a recombination score of 0.
-    new_sample.rec = expand_rec_tracking(sample.rec, bw_library)
-
-    return new_sample
+    return make_expanded_sample(sample, pat_hap, mat_hap, pat_hap + mat_hap, bw_library)
 
 
 @jit(nopython=True, nogil=True)
