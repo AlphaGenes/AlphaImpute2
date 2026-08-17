@@ -123,7 +123,7 @@ def test_2():
     ],
 )
 def test_sex(suffix):
-    """Test sex chromosome imputation across 4 scenarios."""
+    """Test X chromosome imputation across 4 scenarios."""
     BASE = "tests/functional_tests/test_sex"
     OUT = "tests/functional_tests/outputs/test_sex"
     geno_file = f"{BASE}/geno_file-{suffix}.txt"

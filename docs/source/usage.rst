@@ -257,7 +257,7 @@ id1 and id3 are males, while id2 and id4 are females:
 Phase file
 ==========
 
-The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype (For the sex chromosome of male individuals, paternal haplotype would be all 9s), and the second line will provide information on the maternal haplotype.
+The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype (For the X chromosome of male individuals, paternal haplotype would be all 9s), and the second line will provide information on the maternal haplotype.
 
 Example: ::
 

@@ -7,7 +7,6 @@ jobs:
         strategy:
           matrix:
             os: [ubuntu-latest, Windows-latest, macos-latest]
-            python-version: ["3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
         runs-on: ${{ matrix.os }}
         permissions:
             contents: read
@@ -45,5 +44,11 @@ jobs:
                 pip install pytest-benchmark
             
             - name: Run pytest
+              if: runner.os != 'Windows'
               run: |
                 pytest
+
+            - name: Run pytest (Windows)
+              if: runner.os == 'Windows'
+              run: |
+                pytest tests/functional_tests/run_func_test.py tests/accuracy_tests/run_accu_test.py

@@ -18,6 +18,11 @@ def get_params():
     return params
 
 
+@pytest.fixture(scope="session")
+def sim_path():
+    return os.path.join("tests", "accuracy_tests", "sim_for_alphapeel_accu_test")
+
+
 def pytest_configure(config):
     """
     Prepare path and report file for accuracy tests and functional tests

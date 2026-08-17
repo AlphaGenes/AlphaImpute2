@@ -23,6 +23,13 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
     # All individuals sent to imputation are imputed.
     # Most of the actual imputation code is in ParticlePhasing.py and PhasingObjects.py
 
+    if args.x_chr:
+        impute_individuals_on_chip_x(ld_individuals, args, haplotype_library)
+    else:
+        impute_individuals_on_chip_autosome(ld_individuals, args, haplotype_library)
+
+
+def impute_individuals_on_chip_autosome(ld_individuals, args, haplotype_library):
     forward_loci, reverse_loci = get_non_missing_loci(
         ld_individuals, args.phasing_loci_inclusion_threshold
     )
@@ -31,27 +38,85 @@ def impute_individuals_on_chip(ld_individuals, args, haplotype_library):
         print("Number of individuals:", len(ld_individuals))
         print(f"Number of markers: {len(forward_loci)}")
 
-        x_chr = args.x_chr
-        reverse_library = ParticlePhasing.get_reference_library(
-            haplotype_library, reverse=True, x_chr=x_chr
+        reverse_individuals = [ind.reverse_individual() for ind in ld_individuals]
+        reverse_library = ParticlePhasing.get_reference_library_autosome(
+            haplotype_library, reverse=True
         )
         reverse_library.setup_library(loci=reverse_loci, create_a=True)
         multi_threaded_apply(
             backward_impute_individual,
-            [ind.reverse_individual() for ind in ld_individuals],
+            reverse_individuals,
             reverse_library,
             args.n_imputation_particles,
             args.length * args.imputation_length_modifier,
         )
         reverse_library = None
 
-        forward_library = ParticlePhasing.get_reference_library(
-            haplotype_library, x_chr=x_chr
+        forward_library = ParticlePhasing.get_reference_library_autosome(
+            haplotype_library
         )
         forward_library.setup_library(loci=forward_loci, create_a=True)
         multi_threaded_apply(
             forward_impute_individual,
             ld_individuals,
+            forward_library,
+            args.n_imputation_particles,
+            args.length * args.imputation_length_modifier,
+        )
+
+    else:
+        print("Number of individuals:", len(ld_individuals))
+        print("Number of markers: 0 - SKIPPED")
+
+
+def impute_individuals_on_chip_x(ld_individuals, args, haplotype_library):
+    forward_loci, reverse_loci = get_non_missing_loci(
+        ld_individuals, args.phasing_loci_inclusion_threshold
+    )
+
+    if forward_loci is not None:
+        print("Number of individuals:", len(ld_individuals))
+        print(f"Number of markers: {len(forward_loci)}")
+
+        reverse_individuals = [ind.reverse_individual_x() for ind in ld_individuals]
+        male_reverse_individuals = [ind for ind in reverse_individuals if ind.sex == 0]
+        female_reverse_individuals = [
+            ind for ind in reverse_individuals if ind.sex != 0
+        ]
+        reverse_library = ParticlePhasing.get_reference_library_x(
+            haplotype_library, reverse=True
+        )
+        reverse_library.setup_library(loci=reverse_loci, create_a=True)
+        multi_threaded_apply(
+            backward_impute_individual_x_male,
+            male_reverse_individuals,
+            reverse_library,
+            args.n_imputation_particles,
+            args.length * args.imputation_length_modifier,
+        )
+        multi_threaded_apply(
+            backward_impute_individual_x_female,
+            female_reverse_individuals,
+            reverse_library,
+            args.n_imputation_particles,
+            args.length * args.imputation_length_modifier,
+        )
+        reverse_library = None
+
+        forward_library = ParticlePhasing.get_reference_library_x(haplotype_library)
+        forward_library.setup_library(loci=forward_loci, create_a=True)
+        male_individuals = [ind for ind in ld_individuals if ind.sex == 0]
+        female_individuals = [ind for ind in ld_individuals if ind.sex != 0]
+        multi_threaded_apply(
+            forward_impute_individual_x_male,
+            male_individuals,
+            forward_library,
+            args.n_imputation_particles,
+            args.length * args.imputation_length_modifier,
+        )
+        multi_threaded_apply(
+            forward_impute_individual_x_female,
+            female_individuals,
             forward_library,
             args.n_imputation_particles,
             args.length * args.imputation_length_modifier,
@@ -82,7 +147,43 @@ def multi_threaded_apply(func, individuals, library, n_particles, map_length):
 
 def backward_impute_individual(reverse_individual, library, n_samples, map_length):
     reverse_individual.setPhasingView()
-    ParticlePhasing.phase(
+    ParticlePhasing.phase_autosome(
+        reverse_individual,
+        library,
+        set_haplotypes=False,
+        imputation=True,
+        n_samples=n_samples,
+        map_length=map_length,
+    )
+
+    individual = reverse_individual.reverse_view
+    individual.add_backward_info()
+    individual.clear_reverse_view()
+
+
+def backward_impute_individual_x_male(
+    reverse_individual, library, n_samples, map_length
+):
+    reverse_individual.setPhasingView()
+    ParticlePhasing.phase_x_male(
+        reverse_individual,
+        library,
+        set_haplotypes=False,
+        imputation=True,
+        n_samples=n_samples,
+        map_length=map_length,
+    )
+
+    individual = reverse_individual.reverse_view
+    individual.add_backward_info()
+    individual.clear_reverse_view()
+
+
+def backward_impute_individual_x_female(
+    reverse_individual, library, n_samples, map_length
+):
+    reverse_individual.setPhasingView()
+    ParticlePhasing.phase_x_female(
         reverse_individual,
         library,
         set_haplotypes=False,
@@ -98,7 +199,33 @@ def backward_impute_individual(reverse_individual, library, n_samples, map_lengt
 
 def forward_impute_individual(individual, library, n_samples, map_length):
     individual.setPhasingView()
-    ParticlePhasing.phase(
+    ParticlePhasing.phase_autosome(
+        individual,
+        library,
+        set_haplotypes=False,
+        imputation=True,
+        n_samples=n_samples,
+        map_length=map_length,
+    )
+    individual.clear_phasing_view(keep_current_haplotypes=False)
+
+
+def forward_impute_individual_x_male(individual, library, n_samples, map_length):
+    individual.setPhasingView()
+    ParticlePhasing.phase_x_male(
+        individual,
+        library,
+        set_haplotypes=False,
+        imputation=True,
+        n_samples=n_samples,
+        map_length=map_length,
+    )
+    individual.clear_phasing_view(keep_current_haplotypes=False)
+
+
+def forward_impute_individual_x_female(individual, library, n_samples, map_length):
+    individual.setPhasingView()
+    ParticlePhasing.phase_x_female(
         individual,
         library,
         set_haplotypes=False,

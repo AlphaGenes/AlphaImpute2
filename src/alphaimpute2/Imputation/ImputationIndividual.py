@@ -189,8 +189,7 @@ class AlphaImputeIndividual(Pedigree.Individual):
         # self.setPhasingView()
         # self.setPeelingView()
 
-    def setPeelingView(self):
-        # Set the
+    def _setPeelingView(self, store_out_segregation, segregation, out_segregation):
         if self.genotypes is None or self.haplotypes is None:
             raise ValueError(
                 "In order to create a jit_Peeling_Individual both the genotypes and haplotypes need to be created."
@@ -215,8 +214,56 @@ class AlphaImputeIndividual(Pedigree.Individual):
             has_parents,
             nLoci,
             self.map_length,
-            self.isXChr,
+            store_out_segregation,
+            segregation,
+            out_segregation,
         )
+
+    def setPeelingView(self, store_out_segregation=False):
+        if self.genotypes is None or self.haplotypes is None:
+            raise ValueError(
+                "In order to create a jit_Peeling_Individual both the genotypes and haplotypes need to be created."
+            )
+        nLoci = len(self.genotypes)
+        segregation = (
+            np.full(nLoci, 0.5, dtype=np.float32),
+            np.full(nLoci, 0.5, dtype=np.float32),
+        )
+        if store_out_segregation:
+            out_segregation = np.full((4, nLoci), 0.25, dtype=np.float32)
+        else:
+            out_segregation = None
+        self._setPeelingView(store_out_segregation, segregation, out_segregation)
+
+    def setPeelingView_x(self, store_out_segregation=False):
+        if self.genotypes is None or self.haplotypes is None:
+            raise ValueError(
+                "In order to create a jit_Peeling_Individual both the genotypes and haplotypes need to be created."
+            )
+        nLoci = len(self.genotypes)
+        if self.sex == 0:
+            segregation = (
+                np.full(nLoci, 0, dtype=np.float32),
+                np.full(nLoci, 0.5, dtype=np.float32),
+            )
+            if store_out_segregation:
+                out_segregation = np.zeros((4, nLoci), dtype=np.float32)
+                out_segregation[0, :] = 0.5
+                out_segregation[1, :] = 0.5
+            else:
+                out_segregation = None
+        else:
+            segregation = (
+                np.full(nLoci, 1, dtype=np.float32),
+                np.full(nLoci, 0.5, dtype=np.float32),
+            )
+            if store_out_segregation:
+                out_segregation = np.zeros((4, nLoci), dtype=np.float32)
+                out_segregation[2, :] = 0.5
+                out_segregation[3, :] = 0.5
+            else:
+                out_segregation = None
+        self._setPeelingView(store_out_segregation, segregation, out_segregation)
 
     def setPhasingView(self):
         # Set the
@@ -244,16 +291,15 @@ class AlphaImputeIndividual(Pedigree.Individual):
             self.population_imputation_target,
             nLoci,
             self.map_length,
-            self.isXChr,
         )
 
-    def reverse_individual(self):
+    def _reverse_individual(self, is_x_chr):
         new_ind = AlphaImputeIndividual(self.idx + "_reverse", self.idn)
         new_ind.genotypes = np.ascontiguousarray(np.flip(self.genotypes))
         new_ind.map_length = self.map_length
         new_ind.population_imputation_target = self.population_imputation_target
         new_ind.sex = self.sex
-        new_ind.isXChr = self.isXChr
+        new_ind.isXChr = is_x_chr
 
         if self.haplotypes is not None:
             new_ind.haplotypes = (
@@ -262,11 +308,17 @@ class AlphaImputeIndividual(Pedigree.Individual):
             )
         else:
             new_ind.setupIndividual()
-            Imputation.ind_align(new_ind, self.isXChr)
+            Imputation.ind_align(new_ind, is_x_chr)
 
         self.reverse_view = new_ind
         new_ind.reverse_view = self
         return new_ind
+
+    def reverse_individual(self):
+        return self._reverse_individual(False)
+
+    def reverse_individual_x(self):
+        return self._reverse_individual(True)
 
     def add_backward_info(self):
         if self.reverse_view is None:
@@ -294,7 +346,6 @@ spec = OrderedDict()
 spec["idn"] = int64
 spec["nLoci"] = int64
 spec["sex"] = int8
-spec["isXChr"] = boolean
 spec["genotypes"] = int8[:]
 
 # Haplotypes and reads are a tuple of int8 and int64.
@@ -314,6 +365,54 @@ spec["has_own_haplotypes"] = boolean
 spec["population_imputation_target"] = boolean
 
 
+@jit(nopython=True, nogil=True)
+def setValueFromGenotypes_autosome(genotypes, haplotypes, mat, nLoci, error_rate):
+    mat[:, :] = 1
+    for i in range(nLoci):
+        g = genotypes[i]
+
+        if g == 0:
+            mat[0, i] = 1
+            mat[1, i] = 0
+            mat[2, i] = 0
+            mat[3, i] = 0
+        if g == 1:
+            mat[0, i] = 0
+            mat[1, i] = 1
+            mat[2, i] = 1
+            mat[3, i] = 0
+
+        if g == 2:
+            mat[0, i] = 0
+            mat[1, i] = 0
+            mat[2, i] = 0
+            mat[3, i] = 1
+
+        # Handle haplotypes by rulling out genotype states
+        if haplotypes[0][i] == 0:
+            mat[2, i] = 0
+            mat[3, i] = 0
+
+        if haplotypes[0][i] == 1:
+            mat[0, i] = 0
+            mat[1, i] = 0
+
+        if haplotypes[1][i] == 0:
+            mat[1, i] = 0
+            mat[3, i] = 0
+
+        if haplotypes[1][i] == 1:
+            mat[0, i] = 0
+            mat[2, i] = 0
+
+        e = error_rate
+        count = 0
+        for j in range(4):
+            count += mat[j, i]
+        for j in range(4):
+            mat[j, i] = mat[j, i] / count * (1 - e) + e / 4
+
+
 @jitclass(spec)
 class jit_Phasing_Individual(object):
     """
@@ -331,7 +430,6 @@ class jit_Phasing_Individual(object):
         population_imputation_target,
         nLoci,
         map_length,
-        isXChr,
     ):
         self.idn = idn
         self.sex = sex
@@ -351,7 +449,6 @@ class jit_Phasing_Individual(object):
         self.has_own_haplotypes = False
 
         self.population_imputation_target = population_imputation_target
-        self.isXChr = isXChr
 
     def set_own_haplotypes(self, haplotypes_in):
         self.own_haplotypes = haplotypes_in
@@ -361,15 +458,23 @@ class jit_Phasing_Individual(object):
         self.penetrance = np.full((4, self.nLoci), 1, dtype=np.float32)
         self.setValueFromGenotypes(self.penetrance, 0.01)
 
+    def setup_penetrance_x(self):
+        self.penetrance = np.full((4, self.nLoci), 1, dtype=np.float32)
+        self.setValueFromGenotypes_x(self.penetrance, 0.01)
+
     def clear_penetrance(self):
         self.penetrance = np.full((4, 1), 1, dtype=np.float32)
 
     def setValueFromGenotypes(self, mat, error_rate):
+        setValueFromGenotypes_autosome(
+            self.genotypes, self.haplotypes, mat, self.nLoci, error_rate
+        )
+
+    def setValueFromGenotypes_x(self, mat, error_rate):
         nLoci = self.nLoci
         sex = self.sex
-        isXChr = self.isXChr
-        mat[:, :] = 1
-        if isXChr and sex == 0:
+        if sex == 0:
+            mat[:, :] = 1
             for i in range(nLoci):
                 g = self.genotypes[i]
 
@@ -384,9 +489,7 @@ class jit_Phasing_Individual(object):
                     mat[2, i] = 0
                     mat[3, i] = 1
                 if g == 2:
-                    raise ValueError(
-                        f"Unexpected genotype value for male in sex chr: {g}"
-                    )
+                    raise ValueError("Unexpected genotype 2 for male in sex chr.")
                     # Handle haplotypes by rulling out genotype states
                 if self.haplotypes[1][i] == 0:
                     mat[1, i] = 0
@@ -412,51 +515,9 @@ class jit_Phasing_Individual(object):
                 for j in range(4):
                     mat[j, i] = mat[j, i] / count * (1 - e) + e / 4
         else:
-            for i in range(nLoci):
-                g = self.genotypes[i]
-
-                if g == 0:
-                    mat[0, i] = 1
-                    mat[1, i] = 0
-                    mat[2, i] = 0
-                    mat[3, i] = 0
-                if g == 1:
-                    mat[0, i] = 0
-                    mat[1, i] = 1
-                    mat[2, i] = 1
-                    mat[3, i] = 0
-
-                if g == 2:
-                    mat[0, i] = 0
-                    mat[1, i] = 0
-                    mat[2, i] = 0
-                    mat[3, i] = 1
-
-                # Handle haplotypes by rulling out genotype states
-                if self.haplotypes[0][i] == 0:
-                    mat[2, i] = 0
-                    mat[3, i] = 0
-
-                if self.haplotypes[0][i] == 1:
-                    mat[0, i] = 0
-                    mat[1, i] = 0
-
-                if self.haplotypes[1][i] == 0:
-                    mat[1, i] = 0
-                    mat[3, i] = 0
-
-                if self.haplotypes[1][i] == 1:
-                    mat[0, i] = 0
-                    mat[2, i] = 0
-
-                e = error_rate
-                count = 0
-                for j in range(4):
-                    count += mat[j, i]
-                # if count == 0:
-                #     print(g, self.haplotypes[0][i], self.haplotypes[1][i])
-                for j in range(4):
-                    mat[j, i] = mat[j, i] / count * (1 - e) + e / 4
+            setValueFromGenotypes_autosome(
+                self.genotypes, self.haplotypes, mat, nLoci, error_rate
+            )
 
 
 example_phasing_individual = None
@@ -475,7 +536,6 @@ def get_example_phasing_individual():
             True,
             2,
             1,
-            False,
         )
     return example_phasing_individual
 
@@ -485,7 +545,6 @@ spec = OrderedDict()
 spec["idn"] = int64
 spec["nLoci"] = int64
 spec["sex"] = int8
-spec["isXChr"] = boolean
 spec["genotypes"] = int8[:]
 spec["original_genotypes"] = int8[:]
 
@@ -507,6 +566,7 @@ spec["segregation"] = numba.typeof(
     (np.array([0, 1], dtype=np.float32), np.array([0], dtype=np.float32))
 )
 spec["out_segregation"] = optional(float32[:, :])
+spec["store_out_segregation"] = boolean
 
 spec["newPosterior"] = optional(numba.typeof([np.full((4, 100), 0, dtype=np.float32)]))
 
@@ -520,6 +580,111 @@ spec["genotypeProbabilities"] = float32[:, :]
 
 spec["currentState"] = int8
 spec["currentCutoff"] = float32
+
+
+@jit(nopython=True, nogil=True)
+def setValueFromGenotypes_autosome_with_mismatch(
+    genotypes, haplotypes, mat, nLoci, error_rate
+):
+    mat[:, :] = 1
+    for i in range(nLoci):
+        g = genotypes[i]
+
+        if g == 0:
+            mat[0, i] = 1
+            mat[1, i] = 0
+            mat[2, i] = 0
+            mat[3, i] = 0
+        if g == 1:
+            mat[0, i] = 0
+            mat[1, i] = 1
+            mat[2, i] = 1
+            mat[3, i] = 0
+
+        if g == 2:
+            mat[0, i] = 0
+            mat[1, i] = 0
+            mat[2, i] = 0
+            mat[3, i] = 1
+
+        # Handle haplotypes by rulling out genotype states
+        if haplotypes[0][i] == 0:
+            mat[2, i] = 0
+            mat[3, i] = 0
+
+        if haplotypes[0][i] == 1:
+            mat[0, i] = 0
+            mat[1, i] = 0
+
+        if haplotypes[1][i] == 0:
+            mat[1, i] = 0
+            mat[3, i] = 0
+
+        if haplotypes[1][i] == 1:
+            mat[0, i] = 0
+            mat[2, i] = 0
+
+        e = error_rate
+        count = 0
+        for j in range(4):
+            count += mat[j, i]
+
+        if count == 0:
+            # If phase and genotype disagree, set to missing.
+            mat[0, i] = 1
+            mat[1, i] = 1
+            mat[2, i] = 1
+            mat[3, i] = 1
+            count = 4
+        for j in range(4):
+            mat[j, i] = mat[j, i] / count * (1 - e) + e / 4
+
+
+@jit(nopython=True, nogil=True)
+def setGenotypesFromGenotypeProbabilities_autosome(
+    finalGenotypes, genotypes, haplotypes, nLoci, cutoff
+):
+    # set genotypes/haplotypes from this value.
+    for i in range(nLoci):
+        # Set genotype.
+        maxGenotype = 0
+        maxVal = finalGenotypes[0, i]
+
+        if finalGenotypes[1, i] + finalGenotypes[2, i] > maxVal:
+            maxGenotype = 1
+            maxVal = finalGenotypes[1, i] + finalGenotypes[2, i]
+        if finalGenotypes[3, i] > maxVal:
+            maxGenotype = 2
+            maxVal = finalGenotypes[3, i]
+
+        if maxVal > cutoff:
+            genotypes[i] = maxGenotype
+        else:
+            genotypes[i] = 9
+
+        # Set haplotype.
+        hap0 = finalGenotypes[2, i] + finalGenotypes[3, i]
+        hap1 = finalGenotypes[1, i] + finalGenotypes[3, i]
+
+        if hap0 > cutoff:
+            haplotypes[0][i] = 1
+        elif hap0 < 1 - cutoff:
+            haplotypes[0][i] = 0
+        else:
+            haplotypes[0][i] = 9
+
+        if hap1 > cutoff:
+            haplotypes[1][i] = 1
+        elif hap1 < 1 - cutoff:
+            haplotypes[1][i] = 0
+        else:
+            haplotypes[1][i] = 9
+
+        if genotypes[i] == 1 and 18 > (haplotypes[0][i] + haplotypes[1][i]) > 1:
+            if haplotypes[0][i] == 9:
+                haplotypes[0][i] = 1 - haplotypes[1][i]
+            elif haplotypes[1][i] == 9:
+                haplotypes[1][i] = 1 - haplotypes[0][i]
 
 
 @jitclass(spec)
@@ -538,60 +703,42 @@ class jit_Peeling_Individual(object):
         has_parents,
         nLoci,
         map_length,
-        isXChr,
+        store_out_segregation,
+        segregation,
+        out_segregation,
     ):
         self.nLoci = nLoci
         self.idn = idn
         self.sex = sex
         self.genotypes = genotypes
         self.haplotypes = haplotypes
-        self.isXChr = isXChr
         self.map_length = map_length
+        self.store_out_segregation = store_out_segregation
 
-        # Initial value for segregation is .5 to represent uncertainty between haplotype inheritance.
-        if self.isXChr and self.sex == 0:
-            self.segregation = (
-                np.full(nLoci, 0, dtype=np.float32),
-                np.full(nLoci, 0.5, dtype=np.float32),
-            )
-            self.out_segregation = np.zeros((4, nLoci), dtype=np.float32)
-            self.out_segregation[0, :] = 0.5
-            self.out_segregation[1, :] = 0.5
-            self.out_segregation[2, :] = 0.0
-            self.out_segregation[3, :] = 0.0
-        elif self.isXChr and self.sex == 1:
-            self.segregation = (
-                np.full(nLoci, 1, dtype=np.float32),
-                np.full(nLoci, 0.5, dtype=np.float32),
-            )
-            self.out_segregation = np.zeros((4, nLoci), dtype=np.float32)
-            self.out_segregation[0, :] = 0
-            self.out_segregation[1, :] = 0
-            self.out_segregation[2, :] = 0.5
-            self.out_segregation[3, :] = 0.5
-        else:
-            self.segregation = (
-                np.full(nLoci, 0.5, dtype=np.float32),
-                np.full(nLoci, 0.5, dtype=np.float32),
-            )
-
-            self.out_segregation = np.full((4, nLoci), 0.25, dtype=np.float32)
+        self.segregation = segregation
+        self.out_segregation = out_segregation
 
         # Create the posterior terms.
         self.has_offspring = has_offspring
         self.has_parents = has_parents
 
-        self.original_genotypes = self.genotypes.copy()
-        self.original_haplotypes = (
-            self.haplotypes[0].copy(),
-            self.haplotypes[1].copy(),
-        )
+        if self.has_offspring:
+            self.original_genotypes = self.genotypes.copy()
+            self.original_haplotypes = (
+                self.haplotypes[0].copy(),
+                self.haplotypes[1].copy(),
+            )
+            self.posterior = np.full((4, nLoci), 1, dtype=np.float32)
+            self.genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
+        else:
+            self.original_genotypes = self.genotypes
+            self.original_haplotypes = self.haplotypes
+            self.posterior = np.full((0, 0), 1, dtype=np.float32)
+            self.genotypeProbabilities = np.full((0, 0), 1, dtype=np.float32)
+
         self.anterior_availible = False
         self.posterior_open = False
-        self.posterior = np.full((4, nLoci), 1, dtype=np.float32)
         self.anterior = np.full((0, 0), 1, dtype=np.float32)
-
-        self.genotypeProbabilities = np.full((4, nLoci), 1, dtype=np.float32)
 
         self.newPosterior = None
 
@@ -639,17 +786,33 @@ class jit_Peeling_Individual(object):
         if self.check_and_set_state(0, cutoff):
             self.setGenotypesFromPeelingData(True, True, True, cutoff)
 
+    def setGenotypesAll_x(self, cutoff=0.99):
+        if self.check_and_set_state(0, cutoff):
+            self.setGenotypesFromPeelingData_x(True, True, True, cutoff)
+
     def setGenotypesPosterior(self, cutoff=0.99):
         if self.check_and_set_state(1, cutoff):
             self.setGenotypesFromPeelingData(False, True, True, cutoff)
+
+    def setGenotypesPosterior_x(self, cutoff=0.99):
+        if self.check_and_set_state(1, cutoff):
+            self.setGenotypesFromPeelingData_x(False, True, True, cutoff)
 
     def setGenotypesPenetrance(self, cutoff=0.99):
         if self.check_and_set_state(2, cutoff):
             self.setGenotypesFromPeelingData(False, True, False, cutoff)
 
+    def setGenotypesPenetrance_x(self, cutoff=0.99):
+        if self.check_and_set_state(2, cutoff):
+            self.setGenotypesFromPeelingData_x(False, True, False, cutoff)
+
     def setGenotypesAnterior(self, cutoff=0.99):
         if self.check_and_set_state(3, cutoff):
             self.setGenotypesFromPeelingData(True, True, False, cutoff)
+
+    def setGenotypesAnterior_x(self, cutoff=0.99):
+        if self.check_and_set_state(3, cutoff):
+            self.setGenotypesFromPeelingData_x(True, True, False, cutoff)
 
     def setAnterior(self, newAnterior):
         self.anterior = newAnterior
@@ -708,11 +871,19 @@ class jit_Peeling_Individual(object):
     #         self.setValueFromGenotypes(self.penetrance, error_rate)
 
     def setValueFromGenotypes(self, mat, error_rate):
+        setValueFromGenotypes_autosome_with_mismatch(
+            self.original_genotypes,
+            self.original_haplotypes,
+            mat,
+            self.nLoci,
+            error_rate,
+        )
+
+    def setValueFromGenotypes_x(self, mat, error_rate):
         nLoci = self.nLoci
         sex = self.sex
-        isXChr = self.isXChr
-        mat[:, :] = 1
-        if isXChr and sex == 0:
+        if sex == 0:
+            mat[:, :] = 1
             for i in range(nLoci):
                 g = self.original_genotypes[i]
 
@@ -727,9 +898,7 @@ class jit_Peeling_Individual(object):
                     mat[2, i] = 0
                     mat[3, i] = 1
                 if g == 2:
-                    raise ValueError(
-                        f"Unexpected genotype value for male in sex chr: {g}"
-                    )
+                    raise ValueError("Unexpected genotype 2 for male in sex chr.")
                     # Handle haplotypes by rulling out genotype states
                 if self.original_haplotypes[1][i] == 0:
                     mat[1, i] = 0
@@ -753,58 +922,13 @@ class jit_Peeling_Individual(object):
                 for j in range(4):
                     mat[j, i] = mat[j, i] / count * (1 - e) + e / 4
         else:
-            for i in range(nLoci):
-                g = self.original_genotypes[i]
-
-                if g == 0:
-                    mat[0, i] = 1
-                    mat[1, i] = 0
-                    mat[2, i] = 0
-                    mat[3, i] = 0
-                if g == 1:
-                    mat[0, i] = 0
-                    mat[1, i] = 1
-                    mat[2, i] = 1
-                    mat[3, i] = 0
-
-                if g == 2:
-                    mat[0, i] = 0
-                    mat[1, i] = 0
-                    mat[2, i] = 0
-                    mat[3, i] = 1
-
-                # Handle haplotypes by rulling out genotype states
-                if self.original_haplotypes[0][i] == 0:
-                    mat[2, i] = 0
-                    mat[3, i] = 0
-
-                if self.original_haplotypes[0][i] == 1:
-                    mat[0, i] = 0
-                    mat[1, i] = 0
-
-                if self.original_haplotypes[1][i] == 0:
-                    mat[1, i] = 0
-                    mat[3, i] = 0
-
-                if self.original_haplotypes[1][i] == 1:
-                    mat[0, i] = 0
-                    mat[2, i] = 0
-
-                e = error_rate
-                count = 0
-                for j in range(4):
-                    count += mat[j, i]
-
-                if count == 0:
-                    # If phase and genotype disagree, set to missing.
-                    mat[0, i] = 1
-                    mat[1, i] = 1
-                    mat[2, i] = 1
-                    mat[3, i] = 1
-                    count = 4
-                #     print(g, self.haplotypes[0][i], self.haplotypes[1][i])
-                for j in range(4):
-                    mat[j, i] = mat[j, i] / count * (1 - e) + e / 4
+            setValueFromGenotypes_autosome_with_mismatch(
+                self.original_genotypes,
+                self.original_haplotypes,
+                mat,
+                nLoci,
+                error_rate,
+            )
 
     def setGenotypesFromPeelingData(
         self, useAnterior=False, usePenetrance=False, usePosterior=False, cutoff=0.99
@@ -838,13 +962,51 @@ class jit_Peeling_Individual(object):
         self.setGenotypesFromGenotypeProbabilities(finalGenotypes, cutoff)
 
     def setGenotypesFromGenotypeProbabilities(self, finalGenotypes, cutoff):
+        normalize(finalGenotypes)
+        if self.has_offspring:
+            self.genotypeProbabilities[:, :] = finalGenotypes
+        setGenotypesFromGenotypeProbabilities_autosome(
+            finalGenotypes, self.genotypes, self.haplotypes, self.nLoci, cutoff
+        )
+
+    def setGenotypesFromPeelingData_x(
+        self, useAnterior=False, usePenetrance=False, usePosterior=False, cutoff=0.99
+    ):
+        nLoci = self.nLoci
+
+        self.genotypeProbabilities[:, :] = 1
+        finalGenotypes = self.genotypeProbabilities
+        if useAnterior and self.has_parents:
+            if not self.anterior_availible:
+                print("USING ANTERIOR!", self.currentState)
+
+            finalGenotypes *= self.anterior
+
+        if usePosterior and self.has_offspring:
+            if self.posterior_open:
+                print(
+                    "USING POSTERIOR!",
+                    self.currentState,
+                    self.currentCutoff,
+                    self.idn,
+                    self.has_parents,
+                )
+            finalGenotypes *= self.posterior
+
+        if usePenetrance:
+            penetrance = np.full((4, nLoci), 1, dtype=np.float32)
+            self.setValueFromGenotypes_x(penetrance, 0.01)
+            finalGenotypes *= penetrance
+        self.setGenotypesFromGenotypeProbabilities_x(finalGenotypes, cutoff)
+
+    def setGenotypesFromGenotypeProbabilities_x(self, finalGenotypes, cutoff):
         nLoci = self.nLoci
         sex = self.sex
-        isXChr = self.isXChr
         normalize(finalGenotypes)
-        self.genotypeProbabilities[:, :] = finalGenotypes
+        if self.has_offspring:
+            self.genotypeProbabilities[:, :] = finalGenotypes
 
-        if isXChr and (sex == 0):
+        if sex == 0:
             # set genotypes/haplotypes from this value.
             for i in range(nLoci):
                 # We now set to missing below.
@@ -865,7 +1027,6 @@ class jit_Peeling_Individual(object):
 
                 # Set haplotype.
 
-                hap0 = 9
                 hap1 = finalGenotypes[1, i] + finalGenotypes[3, i]
 
                 self.haplotypes[0][i] = 9
@@ -878,56 +1039,9 @@ class jit_Peeling_Individual(object):
                     self.haplotypes[1][i] = 9
 
         else:
-            # set genotypes/haplotypes from this value.
-            for i in range(nLoci):
-                # We now set to missing below.
-                # self.genotypes[i] = 9
-                # self.haplotypes[0][i] = 9
-                # self.haplotypes[1][i] = 9
-
-                # Set genotype.
-                maxGenotype = 0
-                maxVal = finalGenotypes[0, i]
-
-                if finalGenotypes[1, i] + finalGenotypes[2, i] > maxVal:
-                    maxGenotype = 1
-                    maxVal = finalGenotypes[1, i] + finalGenotypes[2, i]
-                if finalGenotypes[3, i] > maxVal:
-                    maxGenotype = 2
-                    maxVal = finalGenotypes[3, i]
-
-                if maxVal > cutoff:
-                    self.genotypes[i] = maxGenotype
-                else:
-                    self.genotypes[i] = 9
-
-                # Set haplotype.
-
-                hap0 = finalGenotypes[2, i] + finalGenotypes[3, i]
-                hap1 = finalGenotypes[1, i] + finalGenotypes[3, i]
-
-                if hap0 > cutoff:
-                    self.haplotypes[0][i] = 1
-                elif hap0 < 1 - cutoff:
-                    self.haplotypes[0][i] = 0
-                else:
-                    self.haplotypes[0][i] = 9
-
-                if hap1 > cutoff:
-                    self.haplotypes[1][i] = 1
-                elif hap1 < 1 - cutoff:
-                    self.haplotypes[1][i] = 0
-                else:
-                    self.haplotypes[1][i] = 9
-
-                if (
-                    self.genotypes[i] == 1
-                    and 18 > (self.haplotypes[0][i] + self.haplotypes[1][i]) > 1
-                ):
-                    if self.haplotypes[0][i] == 9:
-                        self.haplotypes[0][i] = 1 - self.haplotypes[1][i]
-                    elif self.haplotypes[1][i] == 9:
-                        self.haplotypes[1][i] = 1 - self.haplotypes[0][i]
+            setGenotypesFromGenotypeProbabilities_autosome(
+                finalGenotypes, self.genotypes, self.haplotypes, nLoci, cutoff
+            )
 
 
 @jit(nopython=True, nogil=True)
