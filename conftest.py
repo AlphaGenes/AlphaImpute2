@@ -107,9 +107,12 @@ def pytest_terminal_summary(terminalreporter):
 
                 for row in file_data:
                     value = row["value"]
-                    bar_length = int(
-                        max_length * (value - min_value) / (max_value - min_value)
-                    )
+                    if max_value == min_value:
+                        bar_length = max_length
+                    else:
+                        bar_length = int(
+                            max_length * (value - min_value) / (max_value - min_value)
+                        )
                     bar = bar_char * bar_length + empty_char * (max_length - bar_length)
                     terminalreporter.write_line(
                         "{:<20} {:.3f} | {} |".format(row["method"], value, bar)

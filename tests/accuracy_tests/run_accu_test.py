@@ -1,4 +1,7 @@
+import glob
 import os
+import subprocess
+
 import pytest
 
 from accu_test_utils import (
@@ -44,14 +47,12 @@ def test_accu(
     )
 
     def run_command(cmd):
-        exit_code = os.system(cmd)
-        if exit_code == 11:
-            import glob
-
-            outputs = glob.glob(os.path.join(output_path, "test.*"))
-            if outputs:
-                return  # output was written, crash was in cleanup only
-        assert exit_code == 0, f"AlphaImpute2 failed with exit code {exit_code}"
+        exit_code = subprocess.run(cmd, shell=True).returncode
+        outputs = glob.glob(os.path.join(output_path, "test.*"))
+        assert exit_code == 0, (
+            f"AlphaImpute2 failed with exit code {exit_code}; "
+            f"command: {cmd}; outputs: {outputs}"
+        )
 
     benchmark(run_command, command)
 

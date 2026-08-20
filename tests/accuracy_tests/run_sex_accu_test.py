@@ -1,4 +1,6 @@
+import glob
 import os
+import subprocess
 
 import pytest
 
@@ -36,7 +38,15 @@ def test_sex_accu(get_params, method, sim_path, benchmark):
 
     command = generate_command(sim_path, method, output_path, x_chr=True)
 
-    benchmark(os.system, command)
+    def run_command(cmd):
+        exit_code = subprocess.run(cmd, shell=True).returncode
+        outputs = glob.glob(os.path.join(output_path, "test.*"))
+        assert exit_code == 0, (
+            f"AlphaImpute2 failed with exit code {exit_code}; "
+            f"command: {cmd}; outputs: {outputs}"
+        )
+
+    benchmark(run_command, command)
 
     file_out = open("tests/accuracy_tests/accu_report.txt", "a")
 

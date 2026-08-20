@@ -44,11 +44,5 @@ jobs:
                 pip install pytest-benchmark
             
             - name: Run pytest
-              if: runner.os != 'Windows'
               run: |
                 pytest
-
-            - name: Run pytest (Windows)
-              if: runner.os == 'Windows'
-              run: |
-                pytest tests/functional_tests/run_func_test.py tests/accuracy_tests/run_accu_test.py

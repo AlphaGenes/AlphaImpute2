@@ -1,5 +1,4 @@
 import os
-import platform
 import shutil
 import warnings
 
@@ -35,7 +34,7 @@ def generate_command(
 
     arguments = {
         "cycles": "5",
-        "maxthreads": "1" if platform.system() == "Windows" else "6",
+        "maxthreads": "6",
         "phase_output": None,
         "seg_output": None,
     }
