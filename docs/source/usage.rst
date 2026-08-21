@@ -182,12 +182,21 @@ Pedigree file
 
 Each line of a pedigree file has three values, the individual's id, their father's id, and their mother's id. "0" represents an unknown id.
 
+When working with the X chromosome, a fourth value is needed for the individual's sex: ``0`` for males and ``1`` for females.
+
 Example: ::
 
   id1 0 0
   id2 0 0
   id3 id1 id2
   id4 id1 id2
+
+Example with sex information; id1 and id3 are males, while id2 and id4 are females: ::
+
+  id1 0 0 0
+  id2 0 0 1
+  id3 id1 id2 0
+  id4 id1 id2 1
 
 Output file formats
 -------------------
@@ -257,15 +266,62 @@ id1 and id3 are males, while id2 and id4 are females:
 Phase file
 ==========
 
-The phase file gives the phased haplotypes (either 0 or 1) for each individual in two lines. For individuals where we can determine the haplotype of origin, the first line will provide information on the paternal haplotype (For the X chromosome of male individuals, paternal haplotype would be all 9s), and the second line will provide information on the maternal haplotype.
+The phase file gives the phased haplotypes for each individual in two lines, one for each of the paternal and maternal haplotypes of the individual. The first value in each line is the individual's ID. The remaining values are called alleles at each locus, encoded as ``0`` and ``1``, or ``9`` when the allele is missing. For individuals where we can determine the haplotype of origin, the first line provides information on the paternal haplotype, and the second line provides information on the maternal haplotype.
+
+When working with the X chromosome, the paternal haplotype of male individuals is encoded as all ``9`` values because males inherit their X chromosome from their mother.
 
 Example: ::
 
-  id1 0 1 9 0 # Maternal haplotype
   id1 0 1 9 0 # Paternal haplotype
+  id1 0 1 9 0 # Maternal haplotype
   id2 1 1 1 0
   id2 0 0 0 1
   id3 1 0 1 0
   id3 1 0 1 0 
   id4 0 1 0 0
   id4 0 1 1 0
+
+Example with four individuals and their X chromosome haplotypes at four loci;
+id1 and id3 are males, while id2 and id4 are females:
+
+::
+
+  id1 9 9 9 9 # Paternal haplotype
+  id1 0 1 9 0 # Maternal haplotype
+  id2 1 1 1 0
+  id2 0 0 0 1
+  id3 9 9 9 9
+  id3 1 0 1 0
+  id4 0 1 0 0
+  id4 0 1 1 0
+
+Segregation file
+================
+
+The segregation file gives segregation probabilities for each individual in four lines. The first value in each line is the individual's ID. The remaining values are segregation probabilities at each locus.
+
+The four lines correspond to the four possible patterns of segregation:
+
+(1) the grand paternal allele from the father and the grand paternal allele from the mother,
+(2) the grand paternal allele from the father and the grand maternal allele from the mother,
+(3) the grand maternal allele from the father and the grand paternal allele from the mother, and
+(4) the grand maternal allele from the father and the grand maternal allele from the mother.
+
+Example: ::
+
+  id1 0.2500 0.2500 0.2500 0.2500
+  id1 0.2500 0.2500 0.2500 0.2500
+  id1 0.2500 0.2500 0.2500 0.2500
+  id1 0.2500 0.2500 0.2500 0.2500
+  id2 0.2500 0.2500 0.2500 0.2500
+  id2 0.2500 0.2500 0.2500 0.2500
+  id2 0.2500 0.2500 0.2500 0.2500
+  id2 0.2500 0.2500 0.2500 0.2500
+  id3 0.3356 0.3894 0.5000 0.4390
+  id3 0.1644 0.1106 0.0000 0.0610
+  id3 0.3356 0.3894 0.5000 0.4390
+  id3 0.1644 0.1106 0.0000 0.0610
+  id4 0.2046 0.1953 0.2760 0.3914
+  id4 0.2954 0.3047 0.2240 0.1086
+  id4 0.2046 0.1953 0.2760 0.3914
+  id4 0.2954 0.3047 0.2240 0.1086
